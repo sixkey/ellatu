@@ -1,10 +1,10 @@
-from ellatu_db import EllatuDB
-from typing import List, Callable, Optional
+from ellatu_db import Document, EllatuDB, MongoId
+from typing import Dict, List, Callable, Optional, Any
 
 class Codeblock:
 
-    def __init__(self, userid: str, code: str):
-        self.userid = userid
+    def __init__(self, user: Document, code: List[str]):
+        self.user = user
         self.code = code
 
 class Message:
@@ -20,7 +20,8 @@ class TextMessage(Message):
 
 class Submission:
 
-    def __init__(self, codeblocks):
+    def __init__(self, codeblocks: Dict[MongoId, Codeblock], context: Any = None):
+        self.context = context
         self.codeblocks = codeblocks
         self.messages: List[Message] = []
         self.alive = True
@@ -50,18 +51,36 @@ def sequence(actions: List[SubmissionAction]) -> SubmissionAction:
 
 class Ellatu:
 
-    def __init__(self):
+    def __init__(self, ellatu_db: EllatuDB):
         self.on_submit_workflow = kill_submission
         self.on_run_workflow = kill_submission
+        self.db = ellatu_db
 
-    def on_submit(self, userid: str, codeblock: str) -> Submission:
-        block = Codeblock(userid, codeblock)
-        submission = Submission([block])
+    def submit(self, username: str, codeblocks: List[str], worldid: str) -> Submission:
+        user = self.db.user.get_user(username)
+        submission = Submission({user["_id"]:Codeblock(user, codeblocks)}, self)
         submission = self.on_submit_workflow(submission)
         return submission
 
-    def on_run(self, users: str):
-        pass
+    def run(self, usernames: List[str], worldid: str):
+        users = self.db.user.get_users(usernames)
+        if len(users) != len(usernames):
+            return None
+
+        userids = [u["_id"] for u in users]
+        codeblocks = self.db.workplace.get_codeblocks(userids, worldid)
+
+        blocks = {}
+        for user in users:
+            blocks[user["_id"]] = Codeblock(user, codeblocks[user["_id"]])
+        submission = Submission(blocks, self)
+        submission = self.on_run_workflow(submission)
+        return submission
+
+    def user_connected(self, username: str):
+        self.db.user.open_user(username)
+
+
 
 
 

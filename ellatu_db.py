@@ -253,11 +253,20 @@ class User(Model):
     def get_user(self, username: str) -> Document:
         return self.get_one(username=username)
 
+    def get_users(self, usernames: List[str]) -> List[Document]:
+        return self.collection.find({"username": { "$in": usernames }})
+
     def add_user(self, username: str) -> Document:
         return self.add(username=username)
 
+    def open_user(self, username: str) -> Document:
+        user = self.get_user(username)
+        if user:
+            return user
+        return self.add_user(username)
 
-class Level(Model):
+
+class World(Model):
 
     def __init__(self, collection: Collection):
         super().__init__(collection)
@@ -272,11 +281,30 @@ class Level(Model):
                 "tests": ListValidator(None)
             })
         ])
+
+class Level(Model):
+
+    def __init__(self, collection: Collection, worlds: Collection):
+        super().__init__(collection)
+        self.validator = SequentialValidator([
+            ReqFieldsValidator(["title", "code", "tags", "prerequisites"]),
+            PrimaryKeyValidator(collection, ["code"]),
+            DictValidator({
+                "title": StringValidator(min_size = 1, max_size = 64),
+                "code": StringValidator(min_size = 10, max_size = 10),
+                "tags": ListValidator(StringValidator(min_size = 4, max_size = 32)),
+                "worldid": RefKeyValidator(worlds, "_id"),
+                "prerequisites": ListValidator(RefKeyValidator(collection, "id")),
+                "tests": ListValidator(None)
+            })
+        ])
         self.defaults = {
             "tags": [],
             "prerequisites": [],
             "tests": []
         }
+
+MongoId = str
 
 class Workplace(Model):
 
@@ -287,14 +315,14 @@ class Workplace(Model):
             PrimaryKeyValidator(collection, ["user", "level"]),
             DictValidator({
                 "user": RefKeyValidator(users, "_id"),
-                "level": RefKeyValidator(levels, "_id"),
+                "world": RefKeyValidator(levels, "_id"),
                 "codeblocks": ListValidator(StringValidator(min_size=1, max_size=4096))
             })
         ])
         self.defaults = {"codeblocks": []}
 
-    def add_submission(self, userid, levelid, codeblock):
-        doc = self.build_dict(user=userid, level=levelid)
+    def add_submission(self, userid: MongoId, worldid: MongoId, codeblock):
+        doc = self.build_dict(user=userid, world=worldid)
 
         if self.collection.find_one(doc) is None:
             if self.d_add(doc) is None:
@@ -310,6 +338,24 @@ class Workplace(Model):
             code = code[len(code) - MAX_CODEBLOCKS:]
         return self.collection \
                 .find_one_and_update(doc, { '$set': {"codeblocks": code}})
+
+    def get_submissions(self, userids: List[MongoId], worldid: MongoId) -> List[Document]:
+        return self.collection.find({ "world": worldid, "user": {"$in": userids}})
+
+
+    def get_codeblocks(self, userids: List[MongoId], worldid: MongoId) -> Optional[Dict[MongoId, List[str]]]:
+        submissions = self.get_submissions(userids, worldid)
+        if submissions is None:
+            return None
+        result = {}
+        for submission in submissions:
+            result[submission["user"]] = submission["codeblocks"]
+        return result
+
+
+
+
+
 
 
 class Solution(Model):
