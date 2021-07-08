@@ -1,3 +1,5 @@
+from ellatu_db import EllatuDB
+from ellatu import Ellatu
 import os
 import logging
 from ellatu_bot import EllatuBot
@@ -16,5 +18,10 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv('DISCORD_TOKEN')
     GUILD = os.getenv('DISCORD_GUILD')
+
+    ellatudb = EllatuDB("localhost", 27017)
+    ellatu = Ellatu(ellatudb)
+
     client = EllatuBot()
+    client.set_ellatu(ellatu)
     client.run(TOKEN)
