@@ -21,7 +21,8 @@ class Message:
 
 class TextMessage(Message):
 
-    def __init__(self, message: str, message_type: MessageType = MessageType.LOG):
+    def __init__(self, message: str,
+                 message_type: MessageType = MessageType.LOG):
         super().__init__(message_type)
         self.message = message
 
@@ -151,7 +152,6 @@ def print_codeblocks() -> RequestAction:
             usermap[user["_id"]] = username
 
         for userid, codeblocks in request.codeblocks.items():
-
             if userid not in usermap:
                 return terminate_request(request, "Users not loaded corretly")
 
@@ -294,7 +294,7 @@ class Ellatu:
             add_users([username]),
             localize_by_code(levelcode),
             move_users(),
-            add_msg(TextMessage("You have been moved to: ")),
+            add_msg(TextMessage("**You have been moved to:**")),
             print_level_info()
         ])(request)
 
@@ -306,7 +306,7 @@ class Ellatu:
             localize_by_user(username),
             self.on_submit_workflow,
             save_submit(),
-            add_msg(TextMessage("The codeblocks was added to: ")),
+            add_msg(TextMessage("**The codeblocks was added to:**")),
             print_level_info()
         ])(request)
 
@@ -316,7 +316,7 @@ class Ellatu:
             add_users(usernames),
             localize_by_user(usernames[0]),
             assign_from_workplace(usernames),
-            add_msg(TextMessage("Running following blocks:")),
+            add_msg(TextMessage("**Running following blocks:**")),
             print_codeblocks(),
             self.on_run_workflow
         ])(request)

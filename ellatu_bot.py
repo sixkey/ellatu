@@ -2,7 +2,7 @@ from discord.ext.commands.converter import Greedy
 from discord.member import Member
 from ellatu_db import EllatuDB
 from discord.channel import TextChannel
-from ellatu import Ellatu, Request
+from ellatu import Ellatu, Message, Request, TextMessage
 import discord
 from discord.ext import commands
 import re
@@ -57,9 +57,23 @@ async def on_ready():
     print(f'{ellatu_bot.user}')
 
 
-async def send_response(request: Request, channel: TextChannel) -> None:
-    embed = discord.Embed(title="Response")
-    embed.add_field(name="response", value=str(request))
+def embed_message(embed, message: Message) -> None:
+    if isinstance(message, TextMessage):
+        embed.add_field(name = "\u200b", value = message.message,
+                        inline = False)
+    else:
+        embed.add_field(name = "\u200b", value = str(message),
+                        inline = False)
+
+
+async def send_response(request: Request, channel: TextChannel,
+                        title: str = "Response",
+                        desc: Optional[str] = None) -> None:
+    color = discord.Color.green() if request.alive else discord.Color.red()
+    embed = discord.Embed(color=color, title = title,
+                          description=desc)
+    for message in request.messages:
+        embed_message(embed, message)
     await channel.send(embed=embed)
 
 
@@ -94,7 +108,8 @@ async def hello(ctx):
 @ellatu_bot.command()
 async def levels(ctx, worldcode: str):
     request = ellatu.get_levels(worldcode)
-    await send_response(request, ctx.channel)
+    await send_response(request, ctx.channel, title="Levels",
+                        desc=f"levels in **{worldcode}**")
 
 
 @ellatu_bot.command()
