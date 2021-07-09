@@ -2,7 +2,7 @@ from ellatu_db import EllatuDB
 from ellatu import Ellatu
 import os
 import logging
-from ellatu_bot import EllatuBot
+from ellatu_bot import ellatu_bot
 from dotenv import load_dotenv
 
 if __name__ == "__main__":
@@ -22,6 +22,5 @@ if __name__ == "__main__":
     ellatudb = EllatuDB("localhost", 27017)
     ellatu = Ellatu(ellatudb)
 
-    client = EllatuBot()
-    client.set_ellatu(ellatu)
-    client.run(TOKEN)
+    ellatu_bot.ellatu = ellatu
+    ellatu_bot.run(TOKEN)

@@ -292,11 +292,13 @@ class User(Model):
             PrimaryKeyValidator(collection, ["username"]),
             DictValidator({
                 "username": StringValidator(min_size=4, max_size=64),
-                "levelcode": OptionalValidator(RefKeyValidator(levels, "code"))
+                "levelcode": OptionalValidator(codeValidator),
+                "worldcode": OptionalValidator(codeValidator)
             })
         ])
         self.defaults = {
-            "levelcode": None
+            "levelcode": None,
+            "worldcode": None
         }
 
     def get_user(self, username: str) -> Optional[Document]:
@@ -314,10 +316,11 @@ class User(Model):
             return user
         return self.add_user(username)
 
-    def move_user(self, username: str, levelcode: str) -> Optional[Document]:
+    def move_user(self, username: str, worldcode: str,
+                  levelcode: str) -> Optional[Document]:
         return self.collection.update_one(
             {'username': username},
-            {"$set": {"levelcode": levelcode}},
+            {"$set": {"levelcode": levelcode, "worldcode": worldcode}},
             upsert=False
         )
 
