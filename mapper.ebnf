@@ -1,0 +1,102 @@
+@@grammar::Mapper 
+@@whitespace :: /[\t ]+/
+  
+document
+    = 
+    | newline
+    | {function} $
+    ; 
+
+function
+    = 
+    'fun' ~ name:name params:{name} ':' newline body:codeblock
+    ; 
+
+if_stmt
+    =
+    'if' ~ cond:cond ':' newline body:codeblock 
+    elifs:{elif_stmt}
+    else:[else_stmt]
+    ;
+
+elif_stmt
+    = 
+    'elif' ~ cond:cond ':' newline body:codeblock 
+    ; 
+
+else_stmt
+    =
+    'else' ~ ':' newline body:codeblock
+    ; 
+
+cond 
+    =
+    @:expression
+    ; 
+
+codeblock
+    =
+    '{' newline  lines:{stmt_line}+ '}' newline 
+    ; 
+
+stmt_line
+    = 
+    | @:if_stmt
+    | @:stmt newline  
+    ; 
+
+stmt 
+    = 
+    | assigment 
+    | expression  
+    ;
+
+assigment 
+    = 
+    name:name '=' ~ value:expression
+    ; 
+
+expression
+    = 
+    | left:term op:('+' | '-') ~ right:term 
+    | term 
+    ; 
+
+call 
+    = 
+    name:name aprgs:{factor}+
+    ; 
+
+term 
+    = 
+    | left:term op:('*' | '/') ~ right:factor 
+    | call
+    | factor 
+    ; 
+
+factor 
+    = 
+    | '(' ~ @:expression ')'
+    | atom 
+    ; 
+
+atom 
+    =
+    | int 
+    | name 
+    ; 
+
+name
+    = 
+    /[a-zA-Z_][a-zA-Z_0-9]*/
+    ;
+
+int
+    = 
+    /[1-9][0-9]*/ 
+    ;
+
+newline
+    =
+    {['\u000C'] ['\r'] '\n'}+
+    ;
