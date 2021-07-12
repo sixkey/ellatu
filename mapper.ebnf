@@ -31,6 +31,7 @@ stmt_line
     = 
     | @:if_stmt
     | @:while_stmt
+    | @:for_stmt
     | @:stmt newline  
     | @:amn_function 
     ; 
@@ -59,13 +60,18 @@ while_stmt::WhileStmt
 
 for_stmt::ForStmt
     = 
-    'for' ~ name 'in' generator ':' newline body:codeblock 
+    'for' ~ var:name 'in' gen:generator ':' newline body:codeblock 
     ; 
 
-generator::Generator
+generator
     = 
-    '[' from:int '...' to:int [(',' step:int)] ']'
+    @:rng_gen
     ; 
+
+rng_gen::Range
+    =
+    '[' start:int '...' end:int [(',' step:int)] ']'
+    ;  
 
 cond 
     =
@@ -95,37 +101,75 @@ assigment::Assigment
     ; 
 
 expression
-    = 
-    | expr_op
-    | term 
+    =
+    logic 
     ;
 
-expr_op::Operation  
+logic 
+    =
+    | log_op
+    | equality
+    ;  
+
+log_op::Operation 
     = 
-    left:term op:('+' | '-') ~ right:term 
+    left:logic op:('&&' | '||' | '=>') right:equality
+    ; 
+
+equality
+    =
+    | eq_op 
+    | compare 
+    ; 
+
+eq_op::Operation
+    =
+    left:equality op:('==' | '!=') right:compare 
+    ;   
+
+compare 
+    =
+    | comp_op
+    | term
+    ; 
+
+comp_op::Operation
+    = 
+    left:term op:('<=' | '<' | '>=' | '>') right:term
+    ; 
+
+term 
+    = 
+    | term_op
+    | factor
     ;
+
+term_op::Operation  
+    = 
+    left:term op:('+' | '-') ~ right:factor
+    ;
+
+factor
+    = 
+    | fact_op
+    | call
+    | element
+    ; 
+
+fact_op::Operation
+    =
+    left:factor op:('*' | '/') ~ right:element
+    ; 
 
 call::Call
     = 
-    name:name args:{factor}+
+    name:name args:{element}+
     ; 
 
-term
-    = 
-    | term_op
-    | call
-    | factor 
-    ; 
-
-term_op::Operation
-    =
-    left:term op:('*' | '/') ~ right:factor 
-    ; 
-
-factor 
+element 
     = 
     | '(' ~ @:expression ')'
-    | @:atom 
+    | @:atom
     ; 
 
 atom 

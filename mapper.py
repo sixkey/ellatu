@@ -287,11 +287,23 @@ class ScopeStack:
         return ScopeStack(self.stack[:layers])
 
 ARIT_OPS = {
+    '&&': lambda a, b: int(a and b),
+    '||': lambda a, b: int(a or b),
+    '=>': lambda a, b: int(a and not b),
+
+    '<': lambda a, b: int(a < b),
+    '<=': lambda a, b: int(a <= b),
+    '>': lambda a, b: int(a > b),
+    '>=': lambda a, b: int(a >= b),
+
+    '==': lambda a, b: int(a == b),
+    '!=': lambda a, b: int(a != b),
+
     '+': lambda a, b: a + b,
     '-': lambda a, b: a - b,
     '*': lambda a, b: a * b,
     '/': lambda a, b: a // b,
-    '%': lambda a, b: a % b
+    '%': lambda a, b: a % b,
 }
 
 
@@ -352,6 +364,38 @@ class MapperWalker(NodeWalker):
                 return result
         return None
 
+    def walk__for_stmt(self, node):
+
+        self.scope.add_scope()
+        gen = self.walk(node.gen)
+
+        return_value = None
+
+        skips = 0
+
+        for value in gen:
+            if skips:
+                skips -= 1
+                continue
+            self.scope.put(self.walk(node.var), value)
+            result = self.walk(node.body)
+            if result is not None:
+                lift, resval  = result
+                if lift == 'break':
+                    if resval is None or resval == 1:
+                        break
+                    return_value = lift, resval - 1
+                    break
+                if lift == 'continue':
+                    continue
+
+                return_value = result
+                return return_value
+
+        self.scope.pop_scope()
+        return return_value
+
+
     def walk__lift(self, node):
         return (node.lift, self.walk(node.value))
 
@@ -360,6 +404,11 @@ class MapperWalker(NodeWalker):
         return None
 
     def walk__call(self, node):
+
+        if node.name == 'print':
+            print(*[self.walk(v) for v in node.args])
+            return None
+
         function = self.scope.lookup(node.name)
         if function is None:
             raise ValueError(f"function is not defined")
@@ -369,6 +418,7 @@ class MapperWalker(NodeWalker):
 
         scope = self.scope
         newscope = self.scope.copy()
+        newscope.add_scope()
 
         for name, value in zip(function.params, node.args):
             newscope.put_on_last(name, self.walk(value))
@@ -385,6 +435,17 @@ class MapperWalker(NodeWalker):
             raise SyntaxError(f"A uncaught lift other than return tried " +
                               "to escape function")
         return value
+
+    def walk__neg(self, node):
+        return int(not self.walk(node.val))
+
+    def walk__range(self, node):
+        start = self.walk(node.start)
+        end = self.walk(node.end)
+        offset = (1 if end >= start else -1)
+
+        step = self.walk(node.step) if node.step is not None else offset
+        return range(start, end + offset, step)
 
 
     def walk__assigment(self, node):
