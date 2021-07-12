@@ -203,10 +203,10 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
 # PARSING
 ###############################################################################
 
-def mapper_parser():
+def mapper_parser(asmodel = True):
     with open("mapper.ebnf") as f:
         grammar = f.read()
-        return tatsu.compile(grammar, asmodel=True)
+        return tatsu.compile(grammar, asmodel=asmodel)
 
 
 def get_indentation(line: str) -> int:
@@ -337,6 +337,24 @@ class MapperWalker(NodeWalker):
 
         return None
 
+    def walk__while_stmt(self, node):
+
+        while self.walk(node.cond):
+            result = self.walk(node.body)
+            if result is not None:
+                lift, value = result
+                if lift == 'break':
+                    if value is None or value == 1:
+                        return None
+                    return lift, value - 1
+                if lift == 'continue':
+                    continue
+                return result
+        return None
+
+    def walk__lift(self, node):
+        return (node.lift, self.walk(node.value))
+
     def walk__amnesia_stmt(self, node):
         self.walk(node.stmt)
         return None
@@ -358,7 +376,16 @@ class MapperWalker(NodeWalker):
         self.scope = newscope
         result = self.walk(function.body)
         self.scope = scope
-        return result
+
+        if result is None:
+            return None
+
+        lift, value = result
+        if lift != 'return':
+            raise SyntaxError(f"A uncaught lift other than return tried " +
+                              "to escape function")
+        return value
+
 
     def walk__assigment(self, node):
         value = self.walk(node.value)
@@ -385,7 +412,7 @@ if __name__ == "__main__":
     mapper_map = fill_from_file(Map(), "map.txt")
     ship = Ship(mapper_map.start)
 
-    parser = mapper_parser()
+    parser = mapper_parser(True)
 
     with open("main.mapper") as f:
         code = f.read()
@@ -399,9 +426,9 @@ if __name__ == "__main__":
         walker = MapperWalker(scopestack)
         for dec in model['decls']:
             walker.walk(dec)
-
         scopestack.add_scope()
-        print(walker.walk(scopestack.lookup('main').body))
+        result = walker.walk(scopestack.lookup('main').body)
+        print(None if result is None else result[1])
 
         # pprint(model)
 

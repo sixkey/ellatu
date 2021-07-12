@@ -30,6 +30,7 @@ codeblock::Codeblock
 stmt_line
     = 
     | @:if_stmt
+    | @:while_stmt
     | @:stmt newline  
     | @:amn_function 
     ; 
@@ -49,6 +50,21 @@ elif_stmt
 else_stmt
     =
     'else' ~ ':' newline @:codeblock
+    ;
+
+while_stmt::WhileStmt
+    =
+    'while' ~ cond:cond ':' newline body:codeblock
+    ;
+
+for_stmt::ForStmt
+    = 
+    'for' ~ name 'in' generator ':' newline body:codeblock 
+    ; 
+
+generator::Generator
+    = 
+    '[' from:int '...' to:int [(',' step:int)] ']'
     ; 
 
 cond 
@@ -58,13 +74,13 @@ cond
 
 stmt 
     = 
-    | @:return_stmt
+    | @:lift_stmt
     | @:amnesia_stmt
     ;
 
-return_stmt
-    =
-    'return' @:expression
+lift_stmt::Lift 
+    = 
+    lift:('return' | 'break' | 'continue' | 'throw') [value:expression]
     ; 
 
 amnesia_stmt::AmnesiaStmt
@@ -130,7 +146,7 @@ name
 
 int::Integer
     = 
-    value:/[1-9][0-9]*/ 
+    value:(/\-?[0-9]+/)
     ;
 
 newline
