@@ -1,10 +1,11 @@
-from typing import Callable, Optional, Tuple, Dict, TypeVar
+from typing import Any, Callable, List, Optional, Tuple, Dict, TypeVar
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from math import pi
-import json
 from pprint import pprint
 import tatsu
+from tatsu.walkers import NodeWalker
+import json
 
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
@@ -86,11 +87,14 @@ def ewise_tuple(a: Tuple[T, ...], b: Tuple[R, ...],
                 f: Callable[[T, R], S]) -> Tuple[S, ...]:
     return tuple(f(ae, be) for ae, be in zip(a, b))
 
+
 def tcut2(a: Tuple[int, ...]) -> Tuple[int, int]:
     return a[0], a[1]
 
+
 def tadd(a: Tuple[int, ...], b: Tuple[int, ...]) -> Tuple[int, ...]:
     return ewise_tuple(a, b, lambda x, y: x + y)
+
 
 def tsub(a: Tuple[int, ...], b: Tuple[int, ...]) -> Tuple[int, ...]:
     return ewise_tuple(a, b, lambda x, y: x - y)
@@ -113,7 +117,6 @@ def tran_position(pos: Tuple[int, int], dims: Tuple[int, int],
     vals = tadd(tmul(tsub(pos, center), (tile_width, tile_width)),
                 tint(tdiv(dims, (2, 2))))
     return vals[0], vals[1]
-
 
 
 ###############################################################################
@@ -142,10 +145,12 @@ def transform(polygon: np.ndarray, pos: Tuple[int, int],
     return t.dot(r.dot(s.dot(polygon)))
 
 ###############################################################################
-## RENDERING
+# RENDERING
 ###############################################################################
 
+
 SHIP = np.array(((0, -1, 1), (1, 1, 1), (-1, 1, 1))).T
+
 
 def render_map(path: str, mapp: Map, ship: Optional[Ship]):
 
@@ -195,13 +200,14 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
 
 
 ###############################################################################
-## PARSING
+# PARSING
 ###############################################################################
 
 def mapper_parser():
     with open("mapper.ebnf") as f:
         grammar = f.read()
         return tatsu.compile(grammar, asmodel=True)
+
 
 def get_indentation(line: str) -> int:
     res = 0
@@ -210,6 +216,7 @@ def get_indentation(line: str) -> int:
             break
         res += 1
     return res
+
 
 def is_empty(line: str) -> bool:
     return len(line.strip()) == 0
@@ -228,12 +235,13 @@ def indent_to_codeblocks(code: str) -> str:
         cur_indent = get_indentation(line)
 
         if cur_indent > indents[-1]:
+            res += ' ' * indents[-1] + '{\n'
             indents.append(cur_indent)
-            res += '{\n'
         while cur_indent < indents[-1]:
             indents.pop()
-            res += '}\n'
-        res += line[cur_indent:] + '\n'
+            res += ' ' * indents[-1] + '}\n'
+
+        res += line + '\n'
 
     for _ in range(len(indents) - 1):
         res += '}\n'
@@ -241,9 +249,135 @@ def indent_to_codeblocks(code: str) -> str:
     return res
 
 
-
 def mapper_preprocessor(code: str) -> str:
     return indent_to_codeblocks(code)
+
+
+class ScopeStack:
+
+    def __init__(self, stack: Optional[List[Dict[str, Any]]] = None):
+        self.stack: List[Dict[str, Any]] = stack if stack is not None else []
+
+    def lookup(self, symbol: str):
+        for dic in reversed(self.stack):
+            if symbol in dic:
+                return dic[symbol]
+        return None
+
+    def put(self, symbol: str, value: Any) -> None:
+        assert self.stack
+        index = 0
+
+        while index < len(self.stack) - 1 and symbol not in self.stack[index]:
+            index += 1
+
+        self.stack[index][symbol] = value
+
+    def put_on_last(self, symbol: str, value: Any) -> None:
+        assert self.stack
+        self.stack[-1][symbol] = value
+
+    def add_scope(self):
+        self.stack.append({})
+
+    def pop_scope(self):
+        self.stack.pop()
+
+    def copy(self, layers: int = 1):
+        return ScopeStack(self.stack[:layers])
+
+ARIT_OPS = {
+    '+': lambda a, b: a + b,
+    '-': lambda a, b: a - b,
+    '*': lambda a, b: a * b,
+    '/': lambda a, b: a // b,
+    '%': lambda a, b: a % b
+}
+
+
+class MapperWalker(NodeWalker):
+
+    def __init__(self, glob_scope: ScopeStack):
+        self.ctx = glob_scope
+        self.scope = glob_scope
+
+    def walk_object(self, node):
+        return node
+
+    def walk__function(self, node):
+        self.scope.put(node.name, node)
+        return node
+
+    def walk__amn_function(self, node):
+        self.walk(node.fun)
+        return None
+
+    def walk__codeblock(self, node):
+        self.scope.add_scope()
+        value = None
+        for line in node.lines:
+            value = self.walk(line)
+            if value is not None:
+                break
+        self.scope.pop_scope()
+        return value
+
+    def walk__if_statement(self, node):
+        # print('if')
+
+        if self.walk(node.cond):
+            return self.walk(node.body)
+
+        for elif_stmt in node.elifs:
+            if self.walk(elif_stmt.cond):
+                return self.walk(elif_stmt.body)
+
+        if node.else_block is not None:
+            return self.walk(node.else_block)
+
+        return None
+
+    def walk__amnesia_stmt(self, node):
+        self.walk(node.stmt)
+        return None
+
+    def walk__call(self, node):
+        function = self.scope.lookup(node.name)
+        if function is None:
+            raise ValueError(f"function is not defined")
+
+        if len(function.params) != (len(node.args)):
+            raise ValueError(f"Invalid number of positional arguments")
+
+        scope = self.scope
+        newscope = self.scope.copy()
+
+        for name, value in zip(function.params, node.args):
+            newscope.put_on_last(name, self.walk(value))
+
+        self.scope = newscope
+        result = self.walk(function.body)
+        self.scope = scope
+        return result
+
+    def walk__assigment(self, node):
+        value = self.walk(node.value)
+        self.scope.put(node.name, value)
+        return value
+
+    def walk__operation(self, node):
+        if node.op not in ARIT_OPS:
+            raise ValueError(f"Unknown operation: {node.op}")
+        return ARIT_OPS[node.op](self.walk(node.left), self.walk(node.right))
+
+    def walk__variable(self, node):
+        value = self.scope.lookup(node.name)
+        if value is None:
+            raise ValueError(f"Variable '{node.name}' is undefined")
+        return value
+
+    def walk__integer(self, node):
+        return int(node.value)
 
 
 if __name__ == "__main__":
@@ -258,7 +392,17 @@ if __name__ == "__main__":
         code = mapper_preprocessor(code)
         print(code)
         model = parser.parse(code)
-        pprint(model)
 
+        scopestack = ScopeStack()
+        scopestack.add_scope()
+
+        walker = MapperWalker(scopestack)
+        for dec in model['decls']:
+            walker.walk(dec)
+
+        scopestack.add_scope()
+        print(walker.walk(scopestack.lookup('main').body))
+
+        # pprint(model)
 
     # render_map("image.png", mapper_map, ship)

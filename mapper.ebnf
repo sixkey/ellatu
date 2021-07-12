@@ -3,20 +3,42 @@
   
 document
     = 
-    | newline
-    | {function} $
+    decls:{decl} $
     ; 
 
-function
+decl
+    =
+    | function
+    | newline 
+    ;
+
+function::Function
     = 
     'fun' ~ name:name params:{name} ':' newline body:codeblock
     ; 
 
-if_stmt
+amn_function::AmnFunction
+    =
+    fun:function
+    ; 
+
+codeblock::Codeblock
+    =
+    '{' newline  lines:{stmt_line}+ '}' newline 
+    ; 
+
+stmt_line
+    = 
+    | @:if_stmt
+    | @:stmt newline  
+    | @:amn_function 
+    ; 
+
+if_stmt::IfStatement
     =
     'if' ~ cond:cond ':' newline body:codeblock 
     elifs:{elif_stmt}
-    else:[else_stmt]
+    else_block:[else_stmt]
     ;
 
 elif_stmt
@@ -26,7 +48,7 @@ elif_stmt
 
 else_stmt
     =
-    'else' ~ ':' newline body:codeblock
+    'else' ~ ':' newline @:codeblock
     ; 
 
 cond 
@@ -34,66 +56,81 @@ cond
     @:expression
     ; 
 
-codeblock
-    =
-    '{' newline  lines:{stmt_line}+ '}' newline 
-    ; 
-
-stmt_line
-    = 
-    | @:if_stmt
-    | @:stmt newline  
-    ; 
-
 stmt 
     = 
-    | assigment 
-    | expression  
+    | @:return_stmt
+    | @:amnesia_stmt
     ;
 
-assigment 
+return_stmt
+    =
+    'return' @:expression
+    ; 
+
+amnesia_stmt::AmnesiaStmt
+    = 
+    | stmt:assigment 
+    | stmt:expression 
+    ; 
+
+assigment::Assigment
     = 
     name:name '=' ~ value:expression
     ; 
 
 expression
     = 
-    | left:term op:('+' | '-') ~ right:term 
+    | expr_op
     | term 
+    ;
+
+expr_op::Operation  
+    = 
+    left:term op:('+' | '-') ~ right:term 
+    ;
+
+call::Call
+    = 
+    name:name args:{factor}+
     ; 
 
-call 
+term
     = 
-    name:name aprgs:{factor}+
-    ; 
-
-term 
-    = 
-    | left:term op:('*' | '/') ~ right:factor 
+    | term_op
     | call
     | factor 
+    ; 
+
+term_op::Operation
+    =
+    left:term op:('*' | '/') ~ right:factor 
     ; 
 
 factor 
     = 
     | '(' ~ @:expression ')'
-    | atom 
+    | @:atom 
     ; 
 
 atom 
     =
-    | int 
-    | name 
+    | @:int 
+    | @:var 
     ; 
+
+var::Variable
+    = 
+    name:name 
+    ;
 
 name
     = 
     /[a-zA-Z_][a-zA-Z_0-9]*/
     ;
 
-int
+int::Integer
     = 
-    /[1-9][0-9]*/ 
+    value:/[1-9][0-9]*/ 
     ;
 
 newline
