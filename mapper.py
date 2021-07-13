@@ -1,4 +1,5 @@
-from typing import Any, Callable, List, Optional, Tuple, Dict, TypeVar
+from collections import defaultdict
+from typing import Any, Callable, DefaultDict, List, Optional, Tuple, Dict, TypeVar
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from math import pi
@@ -55,14 +56,16 @@ def tran_position(pos: Tuple[int, int], dims: Tuple[int, int],
     return vals[0], vals[1]
 
 ###############################################################################
-## MAP AND SHIP
+# MAP AND SHIP
 ###############################################################################
+
 
 class Map:
 
     def __init__(self, start: Tuple[int, int] = (0, 0)) -> None:
         self.start = start
-        self.tiles: Dict[Tuple[int, int], TileColor] = {}
+        self.tiles: DefaultDict[Tuple[int, int], TileColor] = \
+            defaultdict(lambda: (None, None))
 
     def get_bounding_coords(self) -> Tuple[int, int, int, int]:
 
@@ -75,22 +78,67 @@ class Map:
 
         return min_x, min_y, max_x, max_y
 
+    def get(self, tile: Tuple[int, int]) -> TileColor:
+        return self.tiles[tile]
+
     def put(self, tile: Tuple[int, int],
             color: Optional[Color] = None, border_color: Optional[Color] = None):
-        self.tiles[tile] = (color, border_color)
+
+        (new_color, new_border) = self.tiles[tile]
+        if color is not None:
+            new_color = color
+        if border_color is not None:
+            new_border = border_color
+        self.tiles[tile] = (new_color, new_border)
 
     def get_tiles(self):
         yield from self.tiles.items()
         yield self.start, (None, 'green')
 
     def reset(self):
-        self.tiles = {}
+        self.tiles.clear()
 
     def shift(self, dx, dy):
-        self.temp_files = {}
+        temp_tiles = {}
         for (x, y), color in self.tiles.items():
-            self.temp_files[(x + dx, y + dy)] = color
-        self.tiles = self.temp_files
+            temp_tiles[(x + dx, y + dy)] = color
+        self.tiles.clear()
+
+        for tile, color in temp_tiles.items():
+            self.tiles[tile] = color
+
+    def copy(self) -> 'Map':
+        result = Map(start=self.start)
+        for key, color in self.tiles.items():
+            result.tiles[key] = color
+        return result
+
+
+def mapp_diff(desired: Map, received: Map) -> Optional[Map]:
+    result = received.copy()
+
+    different = False
+
+    ana_from, ana_on = desired, received
+    miss_color = 'red'
+    diff_color = 'yellow'
+    for _ in range(2):
+        for tile, (color, _) in ana_from.tiles.items():
+            if color is None:
+                continue
+            (rec_color, _) = ana_on.get(tile)
+            if rec_color is None:
+                result.put(tile, color=None, border_color=miss_color)
+                different = True
+                continue
+            if rec_color != color:
+                result.put(tile, color=None, border_color=diff_color)
+                different = True
+        ana_from, ana_on = ana_on, ana_from
+        miss_color = 'blue'
+
+    return result if different else None
+
 
 def mov_for_dir(direction: int) -> Tuple[int, int]:
     assert 0 <= direction <= 3, "There are only four directions"
@@ -103,6 +151,7 @@ def mov_for_dir(direction: int) -> Tuple[int, int]:
     if direction == 3:
         return (-1, 0)
     return (0, 0)
+
 
 class Ship:
 
@@ -141,6 +190,7 @@ class Ship:
             border_color: Optional[Color] = None):
         self.mapp.put(self.position, color=color, border_color=border_color)
 
+
 COLORS: Dict[str, Optional[Color]] = {
     'b': "black",
     'g': "green",
@@ -149,6 +199,11 @@ COLORS: Dict[str, Optional[Color]] = {
     '_': None
 }
 
+COLORS_BACK: Dict[Color, str] = {}
+for char, color in COLORS.items():
+    if color:
+        COLORS_BACK[color] = char
+
 
 def get_color(character: str) -> Optional[Color]:
     if character not in COLORS:
@@ -156,21 +211,44 @@ def get_color(character: str) -> Optional[Color]:
     return COLORS[character]
 
 
+def fill_from_text_list(mapp: Map, lines: List[str]) -> Map:
+    for line in lines:
+        col, row, color = line.split()
+        mapp.tiles[(int(col), int(row))] = (COLORS[color], None)
+    return mapp
+
+
+def fill_from_text_map(mapp: Map, lines: List[str]) -> Map:
+    cx, cy = 0, 0
+    for row, line in enumerate(lines):
+        for col, ch in enumerate(line):
+            color = get_color(ch.lower())
+            if ch == 'S' or ch.isupper():
+                cx, cy = (col, row)
+            mapp.tiles[(col, row)] = (color, None)
+    mapp.shift(-cx, -cy)
+    return mapp
+
+
+def fill_from_text(mapp: Map, text: str) -> Map:
+    lines = text.splitlines()
+    header = lines[0].strip()
+    if header == 'LIST':
+        return fill_from_text_list(mapp, lines[1:])  # TODO: yeah slice bad
+    return fill_from_text_map(mapp, lines)
+
+
 def fill_from_file(mapp: Map, path: str) -> Map:
 
     with open(path, "r") as f:
-        cx, cy = 0, 0
-        for row, line in enumerate(f):
-            for col, ch in enumerate(line):
-                color = get_color(ch.lower())
-                border_color: Optional[Color] = None
-                if ch == 'S' or ch.isupper():
-                    cx, cy = (col, row)
-                mapp.tiles[(col, row)] = (color, border_color)
+        return(fill_from_text(mapp, f.read()))
 
-        mapp.shift(-cx, -cy)
-
-    return mapp
+def export_map(mapp: Map) -> str:
+    res = 'LIST\n'
+    for (col, row), (color, _) in mapp.tiles.items():
+        if color is not None:
+            res += f'{col} {row} {COLORS_BACK[color]}\n'
+    return res
 
 
 ###############################################################################
@@ -246,7 +324,6 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
             pos = tran_position(ship.position, dims, tile_width, center)
             polygon = transform(SHIP, pos, rot, tile_width / 3).T.tolist()
             res_poly = tuple([tuple(p[:2]) for p in polygon])
-            print(res_poly)
             g.polygon(tuple(res_poly), "gray")
 
         im.save(path)
@@ -256,7 +333,7 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
 # PARSING
 ###############################################################################
 
-def mapper_parser(asmodel = True):
+def mapper_parser(asmodel=True):
     with open("mapper.ebnf") as f:
         grammar = f.read()
         return tatsu.compile(grammar, asmodel=asmodel)
@@ -339,6 +416,7 @@ class ScopeStack:
     def copy(self, layers: int = 1):
         return ScopeStack(self.stack[:layers])
 
+
 ARIT_OPS = {
     '&&': lambda a, b: int(a and b),
     '||': lambda a, b: int(a or b),
@@ -359,14 +437,15 @@ ARIT_OPS = {
     '%': lambda a, b: a % b,
 }
 
+
 class MapperWalker(NodeWalker):
 
     def __init__(self, glob_scope: ScopeStack,
                  inbuilt: Optional[Dict[str,
-                               Callable[['MapperWalker', List[Any]], Any]]],
+                                        Callable[['MapperWalker', List[Any]], Any]]],
                  ship: Ship,
                  mapp: Map) \
-                 -> None:
+            -> None:
         self.ctx = glob_scope
         self.scope = glob_scope
         self.inbuilt = inbuilt if inbuilt is not None else {}
@@ -377,7 +456,6 @@ class MapperWalker(NodeWalker):
         return node
 
     def walk__function(self, node):
-        print(node.params)
         self.scope.put(node.name, node)
         return node
 
@@ -441,7 +519,7 @@ class MapperWalker(NodeWalker):
             self.scope.put(self.walk(node.var), value)
             result = self.walk(node.body)
             if result is not None:
-                lift, resval  = result
+                lift, resval = result
                 if lift == 'break':
                     if resval is None or resval == 1:
                         break
@@ -455,7 +533,6 @@ class MapperWalker(NodeWalker):
 
         self.scope.pop_scope()
         return return_value
-
 
     def walk__lift(self, node):
         return (node.lift, self.walk(node.value))
@@ -528,6 +605,7 @@ class MapperWalker(NodeWalker):
     def walk__integer(self, node):
         return int(node.value)
 
+
 def in_opt_range(value: int,
                  ran: Optional[Tuple[Optional[int], Optional[int]]]) -> bool:
     if ran is None:
@@ -536,45 +614,52 @@ def in_opt_range(value: int,
     left, right = ran
 
     return (left is None or left <= value) \
-            and (right is None or right >= value)
-
+        and (right is None or right >= value)
 
 
 def argument_check(number: Optional[Tuple[Optional[int],
                                           Optional[int]]] = None):
     def dec(func):
         def wrapper(ctx: MapperWalker, args: List[Any]):
-            if not in_opt_range(len(args),number):
+            if not in_opt_range(len(args), number):
                 raise RuntimeError("The number of args don't match function")
             func(ctx, args)
         return wrapper
     return dec
 
+
 @argument_check(number=(1, None))
 def map_print(_: MapperWalker, args: List[Any]):
     print(*args)
+
 
 @argument_check(number=(1, 1))
 def mov(mapper: MapperWalker, args: List[Any]):
     mapper.ship.move_fwd(args[0])
 
+
 @argument_check(number=(1, 1))
 def rot(mapper: MapperWalker, args: List[Any]):
     mapper.ship.rotate(args[0])
 
+
 COLS = ['black', 'red', 'green', 'blue']
+
 
 @argument_check(number=(1, 1))
 def put(mapper: MapperWalker, args: List[Any]):
     mapper.ship.put(color=COLS[args[0]])
 
+
 @argument_check(number=(1, 1))
 def pen(mapper: MapperWalker, args: List[Any]):
     mapper.ship.pendown = bool(args[0])
 
+
 @argument_check(number=(1, 1))
 def col(mapper: MapperWalker, args: List[Any]):
     mapper.ship.color = COLS[args[0]]
+
 
 INBUILT = {
     'print': map_print,
@@ -585,33 +670,38 @@ INBUILT = {
     'col': col
 }
 
-if __name__ == "__main__":
+Model = Any
 
-    # mapper_map = fill_from_file(Map(), "map.txt")
+
+def compile_code(code: str) -> Model:
+    parser = mapper_parser(True)
+    processed = mapper_preprocessor(code)
+    return parser.parse(processed)
+
+
+def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
     mapper_map = Map(start=(0, 0))
     ship = Ship(mapper_map, mapper_map.start)
 
-    parser = mapper_parser(True)
+    scopestack = ScopeStack()
+    scopestack.add_scope()
+    walker = MapperWalker(scopestack, INBUILT, ship, mapper_map)
+    for model in models:
+        for dec in model['decls']:
+            walker.walk(dec)
+    scopestack.add_scope()
+    result = walker.walk(scopestack.lookup('main').body)
+
+    return result, mapper_map, ship
+
+
+if __name__ == "__main__":
 
     with open("tut.mpp") as f:
         code = f.read()
-        code = mapper_preprocessor(code)
-        print(code)
-        model = parser.parse(code)
 
-        scopestack = ScopeStack()
-        scopestack.add_scope()
-        walker = MapperWalker(scopestack, INBUILT, ship, mapper_map)
-        for dec in model['decls']:
-            walker.walk(dec)
-        scopestack.add_scope()
-        result = walker.walk(scopestack.lookup('main').body)
+    models = [compile_code(code)]
+    result, mapp, ship = run_models(models)
 
-        print(None if result is None else result[1])
-
-        render_map("image.png", mapper_map, ship)
-
-    result_map = fill_from_file(Map(), 'tut.txt')
-    result_ship = Ship(result_map)
-
-    render_map("tut.png", result_map, result_ship)
+    print(export_map(mapp))
+    render_map("level_0.png", mapp, ship)
