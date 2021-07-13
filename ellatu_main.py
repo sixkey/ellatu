@@ -2,8 +2,11 @@ from ellatu_db import EllatuDB
 from ellatu import Ellatu
 import os
 import logging
-from ellatu_bot import ellatu_bot
+from ellatu_bot import EllatuCommandCog, EllatuListeningCog
 from dotenv import load_dotenv
+
+from discord.ext import commands
+
 
 if __name__ == "__main__":
 
@@ -22,5 +25,7 @@ if __name__ == "__main__":
     ellatudb = EllatuDB("localhost", 27017)
     ellatu = Ellatu(ellatudb)
 
-    ellatu_bot.ellatu = ellatu
+    ellatu_bot = commands.Bot(command_prefix='!')
+    ellatu_bot.add_cog(EllatuCommandCog(ellatu_bot, ellatu))
+    ellatu_bot.add_cog(EllatuListeningCog(ellatu_bot, ellatu))
     ellatu_bot.run(TOKEN)

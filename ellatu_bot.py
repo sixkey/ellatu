@@ -1,17 +1,13 @@
-from discord.ext.commands.converter import Greedy
-from discord.member import Member
-from ellatu_db import EllatuDB
-from discord.channel import TextChannel
-from ellatu import Ellatu, Message, Request, TextMessage
-import discord
-from discord.ext import commands
 import re
-import os
-import logging
-from dotenv import load_dotenv
-
-
 from typing import List, Optional
+import discord
+from discord.channel import TextChannel
+from discord.ext import commands
+from ellatu import Message, Request, TextMessage
+
+###############################################################################
+# UTILS
+###############################################################################
 
 
 def extract_code_blocks(message: str) -> List[str]:
@@ -30,47 +26,25 @@ def starts_in(message: str, character: str) -> bool:
 def is_command(message: str) -> bool:
     return starts_in(message.strip(), '!')
 
-
-def get_command(message: str) -> Optional[str]:
-    match = re.match(r"^\s*!(\w+)[\s\S]*", message)
-    if match is None:
-        return None
-
-    return match.group(1)
-
-
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD = os.getenv('DISCORD_GUILD')
-
-ellatudb = EllatuDB("localhost", 27017)
-ellatu = Ellatu(ellatudb)
-ellatu_bot = commands.Bot(command_prefix='!')
-
 ###############################################################################
 # EVENT
 ###############################################################################
 
 
-@ellatu_bot.event
-async def on_ready():
-    print(f'{ellatu_bot.user}')
-
-
 def embed_message(embed, message: Message) -> None:
     if isinstance(message, TextMessage):
-        embed.add_field(name = "\u200b", value = message.message,
-                        inline = False)
+        embed.add_field(name="\u200b", value=message.message,
+                        inline=False)
     else:
-        embed.add_field(name = "\u200b", value = str(message),
-                        inline = False)
+        embed.add_field(name="\u200b", value=str(message),
+                        inline=False)
 
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
                         desc: Optional[str] = None) -> None:
     color = discord.Color.green() if request.alive else discord.Color.red()
-    embed = discord.Embed(color=color, title = title,
+    embed = discord.Embed(color=color, title=title,
                           description=desc)
     for message in request.messages:
         embed_message(embed, message)
@@ -85,71 +59,67 @@ async def send_error(channel: TextChannel, title: str,
     await channel.send(embed=embed)
 
 
-@ellatu_bot.event
-async def on_message(message):
-    print(f'{message.author}, {message.content}')
+class EllatuListeningCog(commands.Cog):
+    def __init__(self, bot, ellatu):
+        self.bot = bot
+        self.ellatu = ellatu
 
-    if message.author == ellatu_bot.user or not is_command(message.content):
-        return
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print(f'{self.bot.user}')
 
-    await ellatu_bot.process_commands(message)
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        print(f'{message.author}, {message.content}')
+
+        if message.author == self.bot.user or not is_command(message.content):
+            return
+
 
 ###############################################################################
 # COMMANDS
 ###############################################################################
 
 
-@ellatu_bot.command()
-async def hello(ctx):
-    ellatu.user_connected(str(ctx.author.id))
-    await ctx.send('Hello')
+class EllatuCommandCog(commands.Cog):
+    def __init__(self, bot, ellatu):
+        self.bot = bot
+        self.ellatu = ellatu
 
+    @commands.command()
+    async def hello(self, ctx):
+        self.ellatu.user_connected(str(ctx.author.id))
+        await ctx.send('Hello')
 
-@ellatu_bot.command()
-async def levels(ctx, worldcode: str):
-    request = ellatu.get_levels(worldcode)
-    await send_response(request, ctx.channel, title="Levels",
-                        desc=f"levels in **{worldcode}**")
+    @commands.command()
+    async def levels(self, ctx, worldcode: str):
+        request = self.ellatu.get_levels(worldcode)
+        await send_response(request, ctx.channel, title="Levels",
+                            desc=f"levels in **{worldcode}**")
 
+    @commands.command()
+    async def worlds(self, ctx):
+        request = self.ellatu.get_worlds()
+        await send_response(request, ctx.channel)
 
-@ellatu_bot.command()
-async def worlds(ctx):
-    request = ellatu.get_worlds()
-    await send_response(request, ctx.channel)
+    @commands.command()
+    async def move(self, ctx, levelcode: str):
+        request = self.ellatu.user_move(str(ctx.author.id), levelcode)
+        await send_response(request, ctx.channel)
 
-@ellatu_bot.command()
-async def move(ctx, levelcode: str):
-    request = ellatu.user_move(str(ctx.author.id), levelcode)
-    await send_response(request, ctx.channel)
+    @commands.command()
+    async def sign(self, ctx):
+        request = self.ellatu.sign_for_user(str(ctx.author.id))
+        await send_response(request, ctx.channel)
 
-@ellatu_bot.command()
-async def sign(ctx):
-    request = ellatu.sign_for_user(str(ctx.author.id))
-    await send_response(request, ctx.channel)
+    @commands.command()
+    async def submit(self, ctx, *, text: str):
+        codeblocks = extract_code_blocks(text)
+        request = self.ellatu.submit(str(ctx.author.id), codeblocks)
+        await send_response(request, ctx.channel)
 
-@ellatu_bot.command()
-async def submit(ctx, *, text: str):
-    codeblocks = extract_code_blocks(text)
-    print(codeblocks)
-    request = ellatu.submit(str(ctx.author.id), codeblocks)
-    await send_response(request, ctx.channel)
-
-@ellatu_bot.command()
-async def run(ctx, users: commands.Greedy[discord.Member]):
-    usernames = [str(u.id) for u in users]
-    request = ellatu.run(usernames)
-    await send_response(request, ctx.channel)
-
-
-
-# set up logging
-logger = logging.getLogger('discord')
-logger.setLevel(logging.DEBUG)
-handler = logging.FileHandler(
-    filename='discord.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter(
-    '%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
-logger.addHandler(handler)
-
-# load enviroment variables
-ellatu_bot.run(TOKEN)
+    @commands.command()
+    async def run(self, ctx, users: commands.Greedy[discord.Member]):
+        usernames = [str(u.id) for u in users]
+        request = ellatu.run(usernames)
+        await send_response(request, ctx.channel)
