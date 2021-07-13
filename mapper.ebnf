@@ -14,7 +14,12 @@ decl
 
 function::Function
     = 
-    'fun' ~ name:name params:{name} ':' newline body:codeblock
+    'fun' ~ name:name '(' params:','.{name} ')' ':' newline body:codeblock
+    ; 
+
+add_param
+    =
+    ',' ~ @:name
     ; 
 
 amn_function::AmnFunction
@@ -70,7 +75,7 @@ generator
 
 rng_gen::Range
     =
-    '[' start:int '...' end:int [(',' step:int)] ']'
+    '[' start:expression '...' end:expression [(',' step:expression)] ']'
     ;  
 
 cond 
@@ -102,8 +107,14 @@ assigment::Assigment
 
 expression
     =
-    logic 
+    | neg 
+    | logic 
     ;
+
+neg::Neg 
+    = 
+    '!' ~ val:logic 
+    ; 
 
 logic 
     =
@@ -158,12 +169,12 @@ factor
 
 fact_op::Operation
     =
-    left:factor op:('*' | '/') ~ right:element
+    left:factor op:('*' | '/' | '%') ~ right:element
     ; 
 
 call::Call
     = 
-    name:name args:{element}+
+    name:name '(' args:','.{expression} ')'
     ; 
 
 element 

@@ -10,70 +10,6 @@ import json
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
 
-
-class Map:
-
-    def __init__(self, start: Tuple[int, int] = (0, 0)) -> None:
-        self.start = start
-        self.tiles: Dict[Tuple[int, int], TileColor] = {}
-
-    def get_bounding_coords(self) -> Tuple[int, int, int, int]:
-
-        min_x, min_y = self.start
-        max_x, max_y = self.start
-
-        for (x, y), _ in self.tiles.items():
-            min_x, min_y = min(min_x, x), min(min_y, y)
-            max_x, max_y = max(max_x, x), max(max_y, y)
-
-        return min_x, min_y, max_x, max_y
-
-
-class Ship:
-
-    def __init__(self, position: Tuple[int, int] = (0, 0)) -> None:
-        self.position = position
-        self.direction = 0
-
-    def move(self, movement: Tuple[int, int]) -> 'Ship':
-        self.position = tcut2(tadd(self.position, movement))
-        return self
-
-    def rotate(self, amount: int) -> 'Ship':
-        self.direction = (self.direction + amount) % 4
-        return self
-
-
-COLORS: Dict[str, Optional[Color]] = {
-    'b': "black",
-    'g': "green",
-    'l': "blue",
-    'r': "red",
-    '_': None
-}
-
-
-def get_color(character: str) -> Optional[Color]:
-    if character not in COLORS:
-        return None
-    return COLORS[character]
-
-
-def fill_from_file(mapp: Map, path: str) -> Map:
-
-    with open(path, "r") as f:
-        for row, line in enumerate(f):
-            for col, ch in enumerate(line):
-                color = get_color(ch.lower())
-                border_color: Optional[Color] = None
-                if ch == 'S' or ch.isupper():
-                    mapp.start = (col, row)
-                    border_color = "green"
-                mapp.tiles[(col, row)] = (color, border_color)
-
-    return mapp
-
-
 T = TypeVar("T")
 R = TypeVar("R")
 S = TypeVar("S")
@@ -118,6 +54,124 @@ def tran_position(pos: Tuple[int, int], dims: Tuple[int, int],
                 tint(tdiv(dims, (2, 2))))
     return vals[0], vals[1]
 
+###############################################################################
+## MAP AND SHIP
+###############################################################################
+
+class Map:
+
+    def __init__(self, start: Tuple[int, int] = (0, 0)) -> None:
+        self.start = start
+        self.tiles: Dict[Tuple[int, int], TileColor] = {}
+
+    def get_bounding_coords(self) -> Tuple[int, int, int, int]:
+
+        min_x, min_y = self.start
+        max_x, max_y = self.start
+
+        for (x, y), _ in self.tiles.items():
+            min_x, min_y = min(min_x, x), min(min_y, y)
+            max_x, max_y = max(max_x, x), max(max_y, y)
+
+        return min_x, min_y, max_x, max_y
+
+    def put(self, tile: Tuple[int, int],
+            color: Optional[Color] = None, border_color: Optional[Color] = None):
+        self.tiles[tile] = (color, border_color)
+
+    def get_tiles(self):
+        yield from self.tiles.items()
+        yield self.start, (None, 'green')
+
+    def reset(self):
+        self.tiles = {}
+
+    def shift(self, dx, dy):
+        self.temp_files = {}
+        for (x, y), color in self.tiles.items():
+            self.temp_files[(x + dx, y + dy)] = color
+        self.tiles = self.temp_files
+
+def mov_for_dir(direction: int) -> Tuple[int, int]:
+    assert 0 <= direction <= 3, "There are only four directions"
+    if direction == 0:
+        return (0, -1)
+    if direction == 1:
+        return (1, 0)
+    if direction == 2:
+        return (0, 1)
+    if direction == 3:
+        return (-1, 0)
+    return (0, 0)
+
+class Ship:
+
+    def __init__(self, mapp: Map, position: Tuple[int, int] = (0, 0)) -> None:
+        self.position = position
+        self.direction = 0
+        self.mapp = mapp
+        self.pendown = True
+        self.color = 'black'
+
+    def move_fwd(self, amount) -> 'Ship':
+        if self.pendown:
+            self.put(self.color)
+
+        direction = self.direction
+        if amount < 0:
+            direction = (direction + 2) % 4
+
+        for _ in range(abs(amount)):
+            self.move(mov_for_dir(direction))
+
+            if self.pendown:
+                self.put(self.color)
+
+        return self
+
+    def move(self, movement: Tuple[int, int]) -> 'Ship':
+        self.position = tcut2(tadd(self.position, movement))
+        return self
+
+    def rotate(self, amount: int) -> 'Ship':
+        self.direction = (self.direction + amount) % 4
+        return self
+
+    def put(self, color: Optional[Color] = None,
+            border_color: Optional[Color] = None):
+        self.mapp.put(self.position, color=color, border_color=border_color)
+
+COLORS: Dict[str, Optional[Color]] = {
+    'b': "black",
+    'g': "green",
+    'l': "blue",
+    'r': "red",
+    '_': None
+}
+
+
+def get_color(character: str) -> Optional[Color]:
+    if character not in COLORS:
+        return None
+    return COLORS[character]
+
+
+def fill_from_file(mapp: Map, path: str) -> Map:
+
+    with open(path, "r") as f:
+        cx, cy = 0, 0
+        for row, line in enumerate(f):
+            for col, ch in enumerate(line):
+                color = get_color(ch.lower())
+                border_color: Optional[Color] = None
+                if ch == 'S' or ch.isupper():
+                    cx, cy = (col, row)
+                mapp.tiles[(col, row)] = (color, border_color)
+
+        mapp.shift(-cx, -cy)
+
+    return mapp
+
 
 ###############################################################################
 # TRANSFORM
@@ -158,18 +212,18 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
     height = 500
 
     left, top, right, bottom = mapp.get_bounding_coords()
-    cx, cy = mapp.start
+    cx, cy = (left + right) / 2, (top + bottom) / 2
 
     tile_width = 50
 
     if right != cx:
-        tile_width = min(tile_width, width / 2 / (right - cx))
+        tile_width = min(tile_width, width / 2 / (right - cx + 1))
     if left != cx:
-        tile_width = min(tile_width, width / 2 / (cx - left))
+        tile_width = min(tile_width, width / 2 / (cx - left + 1))
     if bottom != cy:
-        tile_width = min(tile_width, height / 2 / (bottom - cy))
+        tile_width = min(tile_width, height / 2 / (bottom - cy + 1))
     if top != cy:
-        tile_width = min(tile_width, height / 2 / (cy - top))
+        tile_width = min(tile_width, height / 2 / (cy - top + 1))
 
     tile_width = int(tile_width)
 
@@ -179,17 +233,16 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
     with Image.new(mode="RGB", size=dims, color="white") as im:
         g = ImageDraw.Draw(im)
 
-        for pos, (color, border_color) in mapp.tiles.items():
+        for pos, (color, border_color) in mapp.get_tiles():
             coord = tsub(tran_position(pos, dims, tile_width, center),
                          (tile_width // 2, tile_width // 2))
-            if color or border_color:
-                g.rectangle(
-                    [coord, tadd(coord, (tile_width, tile_width))],
-                    fill=color, width=tile_width//10,
-                    outline=border_color)
+            g.rectangle(
+                [coord, tadd(coord, (tile_width, tile_width))],
+                fill=color, width=tile_width//10,
+                outline=border_color)
 
         if ship is not None:
-            rot = ship.direction * pi
+            rot = ship.direction * pi / 2
             pos = tran_position(ship.position, dims, tile_width, center)
             polygon = transform(SHIP, pos, rot, tile_width / 3).T.tolist()
             res_poly = tuple([tuple(p[:2]) for p in polygon])
@@ -306,17 +359,25 @@ ARIT_OPS = {
     '%': lambda a, b: a % b,
 }
 
-
 class MapperWalker(NodeWalker):
 
-    def __init__(self, glob_scope: ScopeStack):
+    def __init__(self, glob_scope: ScopeStack,
+                 inbuilt: Optional[Dict[str,
+                               Callable[['MapperWalker', List[Any]], Any]]],
+                 ship: Ship,
+                 mapp: Map) \
+                 -> None:
         self.ctx = glob_scope
         self.scope = glob_scope
+        self.inbuilt = inbuilt if inbuilt is not None else {}
+        self.ship = ship
+        self.mapp = mapp
 
     def walk_object(self, node):
         return node
 
     def walk__function(self, node):
+        print(node.params)
         self.scope.put(node.name, node)
         return node
 
@@ -405,9 +466,10 @@ class MapperWalker(NodeWalker):
 
     def walk__call(self, node):
 
-        if node.name == 'print':
-            print(*[self.walk(v) for v in node.args])
-            return None
+        walked_args = [self.walk(v) for v in node.args]
+
+        if node.name in self.inbuilt:
+            return self.inbuilt[node.name](self, walked_args)
 
         function = self.scope.lookup(node.name)
         if function is None:
@@ -447,7 +509,6 @@ class MapperWalker(NodeWalker):
         step = self.walk(node.step) if node.step is not None else offset
         return range(start, end + offset, step)
 
-
     def walk__assigment(self, node):
         value = self.walk(node.value)
         self.scope.put(node.name, value)
@@ -467,15 +528,72 @@ class MapperWalker(NodeWalker):
     def walk__integer(self, node):
         return int(node.value)
 
+def in_opt_range(value: int,
+                 ran: Optional[Tuple[Optional[int], Optional[int]]]) -> bool:
+    if ran is None:
+        return True
+
+    left, right = ran
+
+    return (left is None or left <= value) \
+            and (right is None or right >= value)
+
+
+
+def argument_check(number: Optional[Tuple[Optional[int],
+                                          Optional[int]]] = None):
+    def dec(func):
+        def wrapper(ctx: MapperWalker, args: List[Any]):
+            if not in_opt_range(len(args),number):
+                raise RuntimeError("The number of args don't match function")
+            func(ctx, args)
+        return wrapper
+    return dec
+
+@argument_check(number=(1, None))
+def map_print(_: MapperWalker, args: List[Any]):
+    print(*args)
+
+@argument_check(number=(1, 1))
+def mov(mapper: MapperWalker, args: List[Any]):
+    mapper.ship.move_fwd(args[0])
+
+@argument_check(number=(1, 1))
+def rot(mapper: MapperWalker, args: List[Any]):
+    mapper.ship.rotate(args[0])
+
+COLS = ['black', 'red', 'green', 'blue']
+
+@argument_check(number=(1, 1))
+def put(mapper: MapperWalker, args: List[Any]):
+    mapper.ship.put(color=COLS[args[0]])
+
+@argument_check(number=(1, 1))
+def pen(mapper: MapperWalker, args: List[Any]):
+    mapper.ship.pendown = bool(args[0])
+
+@argument_check(number=(1, 1))
+def col(mapper: MapperWalker, args: List[Any]):
+    mapper.ship.color = COLS[args[0]]
+
+INBUILT = {
+    'print': map_print,
+    'mov': mov,
+    'rot': rot,
+    'put': put,
+    'pen': pen,
+    'col': col
+}
 
 if __name__ == "__main__":
 
-    mapper_map = fill_from_file(Map(), "map.txt")
-    ship = Ship(mapper_map.start)
+    # mapper_map = fill_from_file(Map(), "map.txt")
+    mapper_map = Map(start=(0, 0))
+    ship = Ship(mapper_map, mapper_map.start)
 
     parser = mapper_parser(True)
 
-    with open("main.mapper") as f:
+    with open("tut.mpp") as f:
         code = f.read()
         code = mapper_preprocessor(code)
         print(code)
@@ -483,14 +601,17 @@ if __name__ == "__main__":
 
         scopestack = ScopeStack()
         scopestack.add_scope()
-
-        walker = MapperWalker(scopestack)
+        walker = MapperWalker(scopestack, INBUILT, ship, mapper_map)
         for dec in model['decls']:
             walker.walk(dec)
         scopestack.add_scope()
         result = walker.walk(scopestack.lookup('main').body)
+
         print(None if result is None else result[1])
 
-        # pprint(model)
+        render_map("image.png", mapper_map, ship)
 
-    # render_map("image.png", mapper_map, ship)
+    result_map = fill_from_file(Map(), 'tut.txt')
+    result_ship = Ship(result_map)
+
+    render_map("tut.png", result_map, result_ship)
