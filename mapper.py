@@ -1,4 +1,5 @@
-from typing import Any, Callable, List, Optional, Tuple, Dict, TypeVar
+from collections import defaultdict
+from typing import Any, Callable, DefaultDict, List, Optional, Tuple, Dict, TypeVar
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from math import pi
@@ -58,11 +59,14 @@ def tran_position(pos: Tuple[int, int], dims: Tuple[int, int],
 ## MAP AND SHIP
 ###############################################################################
 
+
+
 class Map:
 
     def __init__(self, start: Tuple[int, int] = (0, 0)) -> None:
         self.start = start
-        self.tiles: Dict[Tuple[int, int], TileColor] = {}
+        self.tiles: DefaultDict[Tuple[int, int], TileColor] = \
+            defaultdict(lambda: (None, None))
 
     def get_bounding_coords(self) -> Tuple[int, int, int, int]:
 
@@ -75,22 +79,68 @@ class Map:
 
         return min_x, min_y, max_x, max_y
 
+    def get(self, tile: Tuple[int, int]) -> TileColor:
+        return self.tiles[tile]
+
     def put(self, tile: Tuple[int, int],
             color: Optional[Color] = None, border_color: Optional[Color] = None):
-        self.tiles[tile] = (color, border_color)
+
+        (new_color, new_border) = self.tiles[tile]
+        if color is not None:
+            new_color = color
+        if border_color is not None:
+            new_border = border_color
+        self.tiles[tile] = (new_color, new_border)
 
     def get_tiles(self):
         yield from self.tiles.items()
         yield self.start, (None, 'green')
 
     def reset(self):
-        self.tiles = {}
+        self.tiles.clear()
 
     def shift(self, dx, dy):
-        self.temp_files = {}
+        temp_tiles = {}
         for (x, y), color in self.tiles.items():
-            self.temp_files[(x + dx, y + dy)] = color
-        self.tiles = self.temp_files
+            temp_tiles[(x + dx, y + dy)] = color
+        self.tiles.clear()
+
+        for tile, color in temp_tiles.items():
+            self.tiles[tile] = color
+
+    def copy(self) -> 'Map':
+        result = Map(start = self.start)
+        for key, color in self.tiles.items():
+            result.tiles[key] = color
+        return result
+
+
+def mapp_diff(desired: Map, received: Map) -> Optional[Map]:
+    result = received.copy()
+
+    different = False
+
+    ana_from, ana_on = desired, received
+    miss_color = 'red'
+    diff_color = 'yellow'
+    for _ in range(2):
+        for tile, (color, _) in ana_from.tiles.items():
+            if color is None:
+                continue
+            (rec_color, _) = ana_on.get(tile)
+            if rec_color is None:
+                result.put(tile, color=None, border_color=miss_color)
+                different = True
+                continue
+            if rec_color != color:
+                result.put(tile, color=None, border_color=diff_color)
+                different = True
+        ana_from, ana_on = ana_on, ana_from
+        miss_color='blue'
+
+
+    return result if different else None
+
 
 def mov_for_dir(direction: int) -> Tuple[int, int]:
     assert 0 <= direction <= 3, "There are only four directions"
@@ -615,3 +665,6 @@ if __name__ == "__main__":
     result_ship = Ship(result_map)
 
     render_map("tut.png", result_map, result_ship)
+
+    diff = mapp_diff(result_map, mapper_map)
+    render_map("res.png", diff if diff is not None else result_map, result_ship)
