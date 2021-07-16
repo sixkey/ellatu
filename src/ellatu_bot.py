@@ -1,5 +1,6 @@
 import os
 import re
+from ellatu_db import UserKey
 from ellatu import ParagraphMessage
 from typing import List, Optional
 import discord
@@ -99,6 +100,8 @@ class EllatuListeningCog(commands.Cog):
 # COMMANDS
 ###############################################################################
 
+def dc_userkey(user) -> UserKey:
+    return ('dc', str(user.id))
 
 class EllatuCommandCog(commands.Cog):
     def __init__(self, bot, ellatu):
@@ -107,8 +110,8 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.command()
     async def hello(self, ctx):
-        self.ellatu.user_connected(str(ctx.author.id))
-        await ctx.send('Hello')
+        self.ellatu.user_connected(dc_userkey(ctx.author), ctx.author.name)
+        await ctx.send(f'Hello {ctx.author.name}')
 
     @commands.command()
     async def levels(self, ctx, worldcode: str):
@@ -123,22 +126,22 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.command()
     async def move(self, ctx, levelcode: str):
-        request = self.ellatu.user_move(str(ctx.author.id), levelcode)
+        request = self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
         await send_response(request, ctx.channel)
 
     @commands.command()
     async def sign(self, ctx):
-        request = self.ellatu.sign_for_user(str(ctx.author.id))
+        request = self.ellatu.sign_for_user(dc_userkey(ctx.author))
         await send_response(request, ctx.channel)
 
     @commands.command()
     async def submit(self, ctx, *, text: str):
         codeblocks = extract_code_blocks(text)
-        request = self.ellatu.submit(str(ctx.author.id), codeblocks)
+        request = self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
         await send_response(request, ctx.channel)
 
     @commands.command()
     async def run(self, ctx, users: commands.Greedy[discord.Member]):
-        usernames = [str(ctx.message.author.id)] + [str(u.id) for u in users]
-        request = self.ellatu.run(usernames)
+        userkeys = [dc_userkey(ctx.message.author)] + [dc_userkey(u) for u in users]
+        request = self.ellatu.run(userkeys)
         await send_response(request, ctx.channel)

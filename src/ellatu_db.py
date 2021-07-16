@@ -1,7 +1,9 @@
 from pprint import pprint
-from typing import Any, Callable, Dict, Generic, List, Optional, Set, TypeVar
+from typing import Any, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar
 from pymongo import MongoClient
 from datetime import datetime
+
+from pymongo.collection import ReturnDocument
 
 DB_DEV = "ellatu_dev"
 
@@ -283,7 +285,7 @@ class Model:
         key_doc = {}
         for key in keys:
             key_doc[key] = doc[key]
-        return self.collection.find_one_and_update(key_doc, {"$set": doc}, upsert=True)
+        return self.collection.find_one_and_update(key_doc, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER)
 
     def get(self, **kwargs: Kwargs) -> Optional[Document]:
         query = self.build_dict(**kwargs)
@@ -299,16 +301,24 @@ class Model:
     def exists(self, **kwargs: Kwargs) -> bool:
         return self.get_one(**kwargs) is not None
 
+ClientService = str
+ClientId = str
+UserKey = Tuple[ClientService, ClientId]
+
+def get_userkey(doc: Document) -> UserKey:
+    return (doc["client_ser"], doc['client_id'])
 
 class User(Model):
 
     def __init__(self, collection: Collection, levels: Collection):
         super().__init__(collection)
         self.validator = SequentialValidator([
-            ReqFieldsValidator(["username"]),
-            PrimaryKeyValidator(collection, ["username"]),
+            ReqFieldsValidator(["client_ser", "client_id", "username"]),
+            PrimaryKeyValidator(collection, ["client_ser", "client_id"]),
             DictValidator({
-                "username": StringValidator(min_size=4, max_size=64),
+                "client_ser": StringValidator(min_size=1, max_size=64),
+                "client_id": StringValidator(min_size=1, max_size=64),
+                "username": StringValidator(min_size=1, max_size=64),
                 "levelcode": OptionalValidator(codeValidator),
                 "worldcode": OptionalValidator(codeValidator)
             })
@@ -318,25 +328,32 @@ class User(Model):
             "worldcode": None
         }
 
-    def get_user(self, username: str) -> Optional[Document]:
-        return self.get_one(username=username)
+    def get_user(self, userkey: UserKey) -> Optional[Document]:
+        return self.get_one(client_ser=userkey[0], client_id=userkey[1])
 
-    def get_users(self, usernames: List[str]) -> List[Document]:
-        return self.collection.find({"username": {"$in": usernames}})
+    def get_users(self, userkeys: List[UserKey]) -> List[Document]:
+        users = []
+        for userkey in userkeys:
+            user = self.get_user(userkey)
+            if user is not None:
+                users.append(user)
+        return users
 
-    def add_user(self, username: str) -> Optional[Document]:
-        return self.add(username=username)
+    def add_user(self, userkey: UserKey, username: str) -> Optional[Document]:
+        return self.add(client_ser=userkey[0], client_id=userkey[1],
+                        username=username)
 
-    def open_user(self, username: str) -> Optional[Document]:
-        user = self.get_user(username)
+    def open_user(self, userkey: UserKey, username:str) -> Optional[Document]:
+        user = self.get_user(userkey)
         if user:
             return user
-        return self.add_user(username)
+        return self.add_user(userkey, username)
 
-    def move_user(self, username: str, worldcode: str,
+    def move_user(self, userkey: UserKey, worldcode: str,
                   levelcode: str) -> Optional[Document]:
         return self.collection.update_one(
-            {'username': username},
+            {'client_ser': userkey[0],
+             'client_id': userkey[1]},
             {"$set": {"levelcode": levelcode, "worldcode": worldcode}},
             upsert=False
         )

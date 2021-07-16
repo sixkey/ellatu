@@ -1,5 +1,5 @@
 import re
-from ellatu_db import Document, EllatuDB, MongoId
+from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
 from typing import Dict, List, Callable, Optional, Any
 from enum import Enum
 
@@ -121,42 +121,40 @@ def add_msg(message: Message) -> RequestAction:
     return action
 
 
-def add_users(usernames: List[str]) -> RequestAction:
+def add_users(userkeys: List[UserKey]) -> RequestAction:
     def action(request: Request) -> Request:
-        names_set = set(usernames)
-        users = request.ellatu.db.user.get_users(usernames)
-        print(users)
+        keys_set = set(userkeys)
+        users = request.ellatu.db.user.get_users(userkeys)
         for user in users:
-            names_set.remove(user["username"])
-            request.users[user["username"]] = user
-        if names_set:
+            keys_set.remove(get_userkey(user))
+            request.users[get_userkey(user)] = user
+        if keys_set:
             terminate_request(request,
-                              f"The users were not found " +
-                              f"{str(', '.join(names_set))}")
+                              f"The users were not found")
         return request
     return action
 
 
-def assign_codeblocks(assignments: Dict[str, List[str]]) -> RequestAction:
+def assign_codeblocks(assignments: Dict[UserKey, List[str]]) -> RequestAction:
     def action(request: Request) -> Request:
-        for username, codeblocks in assignments.items():
-            if username not in request.users:
+        for userkey, codeblocks in assignments.items():
+            if userkey not in request.users:
                 request.messages.append(TextMessage(
-                    f"{username} is not in the request"))
+                    f"User not is not in the request"))
                 continue
-            user = request.users[username]
+            user = request.users[userkey]
             request.codeblocks[user["_id"]] = codeblocks
         return request
     return action
 
 
-def assign_from_workplace(usernames: List[str]) -> RequestAction:
+def assign_from_workplace(userkeys: List[UserKey]) -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request,
                                      "The request doesn't have valid \
                                         level set")
-        users = request.ellatu.db.user.get_users(usernames)
+        users = request.ellatu.db.user.get_users(userkeys)
         userids = [u["_id"] for u in users]
         codeblocks = request.ellatu.db.workplace\
             .get_codeblocks(userids, request.level["worldcode"])
@@ -171,8 +169,8 @@ def print_codeblocks() -> RequestAction:
         res = ""
 
         usermap = {}
-        for username, user in request.users.items():
-            usermap[user["_id"]] = username
+        for userkey, user in request.users.items():
+            usermap[user["_id"]] = userkey
 
         for userid, codeblocks in request.codeblocks.items():
             if userid not in usermap:
@@ -189,9 +187,9 @@ def print_codeblocks() -> RequestAction:
     return action
 
 
-def localize_by_user(username: str) -> RequestAction:
+def localize_by_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
-        user = request.ellatu.db.user.get_user(username)
+        user = request.ellatu.db.user.get_user(userkey)
         if user is None:
             return terminate_request(request, "The user was not found")
         request.level = request.ellatu.db.level.get_by_code(user["levelcode"])
@@ -217,8 +215,9 @@ def move_users() -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request, "Invalid level")
-        for username, _ in request.users.items():
-            request.ellatu.db.user.move_user(username, request.level["worldcode"], request.level["code"])
+        for userkey, _ in request.users.items():
+            if not request.ellatu.db.user.move_user(userkey, request.level["worldcode"], request.level["code"]):
+                return terminate_request(request, "Unable to move user")
         return request
     return action
 
@@ -336,42 +335,42 @@ class Ellatu:
         self.on_run_workflow = const_workflow
         self.db = ellatu_db
 
-    def user_move(self, username: str, levelcode: str) -> Request:
+    def user_move(self, userkey: UserKey, levelcode: str) -> Request:
         request = Request(self)
         return sequence([
-            add_users([username]),
+            add_users([userkey]),
             localize_by_code(levelcode),
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
             print_level_info()
         ])(request)
 
-    def submit(self, username: str, codeblocks: List[str]) -> Request:
+    def submit(self, userkey: UserKey, codeblocks: List[str]) -> Request:
         request = Request(self)
         return sequence([
-            add_users([username]),
-            assign_codeblocks({username: codeblocks}),
-            localize_by_user(username),
+            add_users([userkey]),
+            assign_codeblocks({userkey: codeblocks}),
+            localize_by_user(userkey),
             self.on_submit_workflow,
             save_submit(),
             add_msg(TextMessage("**The codeblocks was added to:**")),
             print_level_info()
         ])(request)
 
-    def run(self, usernames: List[str]) -> Request:
+    def run(self, userkeys: List[UserKey]) -> Request:
         request = Request(self)
         return sequence([
-            add_users(usernames),
-            localize_by_user(usernames[0]),
-            assign_from_workplace(usernames),
+            add_users(userkeys),
+            localize_by_user(userkeys[0]),
+            assign_from_workplace(userkeys),
             add_msg(TextMessage("**Running following blocks:**")),
             print_codeblocks(),
             self.on_run_workflow,
             save_solution()
         ])(request)
 
-    def user_connected(self, username: str) -> bool:
-        return self.db.user.open_user(username) is not None
+    def user_connected(self, userkey: UserKey, username: str) -> bool:
+        return self.db.user.open_user(userkey, username) is not None
 
     def get_worlds(self) -> Request:
         request = Request(self)
@@ -388,9 +387,9 @@ class Ellatu:
             print_levels()
         ])(request)
 
-    def sign_for_user(self, username: str) -> Request:
+    def sign_for_user(self, userkey: UserKey) -> Request:
         request = Request(self)
         return sequence([
-            localize_by_user(username),
+            localize_by_user(userkey),
             print_level_info()
         ])(request)
