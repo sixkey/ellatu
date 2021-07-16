@@ -29,6 +29,29 @@ class TextMessage(Message):
     def __str__(self) -> str:
         return self.prefix(self.message)
 
+class ParagraphMessage(Message):
+
+    def __init__(self, message: str,
+                 message_type: MessageType = MessageType.LOG):
+        super().__init__(message_type)
+
+        matches = re.split(r'!(\[[^\]]*\]\[[^\]]*\])',
+                           message)
+        images = []
+        final_message = ""
+        for index, part in enumerate(matches):
+            if index % 2 == 0:
+                final_message += part
+            else:
+                worlds = part[1:-1].split('][', maxsplit=1)
+                images.append(worlds)
+                final_message += f"_[{len(images)}]_"
+
+        self.message = final_message
+        self.images = images
+
+    def __str__(self) -> str:
+        return self.prefix(self.message)
 
 class Request:
 
@@ -221,8 +244,10 @@ def print_level_info() -> RequestAction:
         if request.level is None:
             return trace(request, "No level selected")
 
-        return trace(request, f"{level_code_doc(request.level)}: " +
-                     f"{request.level['title']}")
+        request.add_message(ParagraphMessage(
+            f"**{request.level['title']} [{level_code_doc(request.level)}]**\n" +
+            request.level['desc']))
+        return request
     return action
 
 def print_levels() -> RequestAction:
@@ -238,13 +263,9 @@ def print_worlds() -> RequestAction:
         worlds = request.ellatu.db.world.get()
         res = ""
         for world in worlds:
-            res += f"{world['code']}: {world['title']}"
+            res += f"{world['code']}: {world['title']}\n"
         return trace(request, res)
     return action
-
-
-
-
 
 
 # def move_users(levelcode: str) -> RequestAction:
@@ -280,6 +301,13 @@ def sequence(actions: List[RequestAction]) -> RequestAction:
 
     return action
 
+class EllatuPipeline:
+
+    def on_submit(self, request: Request) -> Request:
+        return request
+
+    def on_run(self, request: Request) -> Request:
+        return request
 
 class Ellatu:
 

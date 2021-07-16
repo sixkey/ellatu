@@ -244,6 +244,7 @@ class Model:
     def __init__(self, collection: Collection):
         self.collection = collection
         self.validator: Optional[Validator[Document]] = None
+        self.doc_validator: Optional[Validator[Document]] = None
         self.defaults: Optional[Document] = None
 
     def build_dict(self, **kwargs: Kwargs) -> Document:
@@ -256,7 +257,7 @@ class Model:
         doc = self.build_dict(**kwargs)
         return self.d_add(doc)
 
-    def d_add(self, doc: Document) -> Optional[Document]:
+    def _add_def(self, doc: Document) -> Document:
         if self.defaults is not None:
             for key, value in self.defaults.items():
                 if key not in doc:
@@ -264,9 +265,25 @@ class Model:
                         doc[key] = value()
                     else:
                         doc[key] = value
+        return doc
+
+    def d_add(self, doc: Document) -> Optional[Document]:
+        self._add_def(doc)
         if self.validator is not None and not self.validator.validate(doc):
             return None
         return self.collection.insert_one(doc)
+
+    def d_update(self, keys: List[str], doc: Document) -> Optional[Document]:
+        self._add_def(doc)
+        if self.doc_validator is not None:
+            if not self.doc_validator.validate(doc):
+                return None
+        elif self.validator is not None and not self.validator.validate(doc):
+            return None
+        key_doc = {}
+        for key in keys:
+            key_doc[key] = doc[key]
+        return self.collection.find_one_and_update(key_doc, {"$set": doc}, upsert=True)
 
     def get(self, **kwargs: Kwargs) -> Optional[Document]:
         query = self.build_dict(**kwargs)
@@ -333,15 +350,18 @@ class World(Model):
 
     def __init__(self, collection: Collection):
         super().__init__(collection)
-        self.validator = SequentialValidator([
+        self.doc_validator = SequentialValidator([
             ReqFieldsValidator(["title", "code", "tags", "prerequisites"]),
-            PrimaryKeyValidator(collection, ["code"]),
             DictValidator({
                 "title": titleValidator,
                 "code": codeValidator,
                 "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
                 "prerequisites": ListValidator(RefKeyValidator(collection, "code")),
             })
+        ])
+        self.validator = SequentialValidator([
+            self.doc_validator,
+            PrimaryKeyValidator(collection, ["code"])
         ])
         self.defaults = {
             "tags": [],
@@ -353,20 +373,30 @@ class Level(Model):
 
     def __init__(self, collection: Collection, worlds: Collection):
         super().__init__(collection)
-        self.validator = SequentialValidator([
+        self.doc_validator = SequentialValidator([
             ReqFieldsValidator(
-                ["title", "code", "worldcode", "prerequisites"]),
-            PrimaryKeyValidator(collection, ["worldcode", "code"]),
+                ["title", "code", "worldcode", "prerequisites", "pipeline"]),
             DictValidator({
                 "title": titleValidator,
+                "desc": StringValidator(),
+
                 "code": codeValidator,
                 "worldcode": RefKeyValidator(worlds, "code"),
-                "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
+
                 "prerequisites": ListValidator(RefKeyValidator(collection, "code")),
-                "tests": ListValidator(None)
+
+                "pipeline": StringValidator(min_size=4, max_size=16),
+                "tests": ListValidator(None),
+
+                "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
             })
         ])
+        self.validator = SequentialValidator([
+            PrimaryKeyValidator(collection, ["worldcode", "code"]),
+            self.doc_validator
+        ])
         self.defaults = {
+            "desc": "",
             "tags": [],
             "prerequisites": [],
             "tests": []

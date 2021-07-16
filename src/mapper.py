@@ -230,24 +230,24 @@ def fill_from_text_map(mapp: Map, lines: List[str]) -> Map:
     return mapp
 
 
-def fill_from_text(mapp: Map, text: str) -> Map:
-    lines = text.splitlines()
+def fill_from_text(mapp: Map, text: str, sep: Optional[str] = None) -> Map:
+    lines = text.splitlines() if sep is None else text.split(sep)
     header = lines[0].strip()
     if header == 'LIST':
         return fill_from_text_list(mapp, lines[1:])  # TODO: yeah slice bad
     return fill_from_text_map(mapp, lines)
 
 
-def fill_from_file(mapp: Map, path: str) -> Map:
-
+def fill_from_file(mapp: Map, path: str, sep: Optional[str] = None) -> Map:
     with open(path, "r") as f:
-        return(fill_from_text(mapp, f.read()))
+        return(fill_from_text(mapp, f.read(), sep))
 
-def export_map(mapp: Map) -> str:
-    res = 'LIST\n'
+
+def export_map(mapp: Map, sep:str = '\n') -> str:
+    res = 'LIST'
     for (col, row), (color, _) in mapp.tiles.items():
         if color is not None:
-            res += f'{col} {row} {COLORS_BACK[color]}\n'
+            res += sep + f'{col} {row} {COLORS_BACK[color]}'
     return res
 
 
@@ -284,8 +284,15 @@ def transform(polygon: np.ndarray, pos: Tuple[int, int],
 SHIP = np.array(((0, -1, 1), (1, 1, 1), (-1, 1, 1))).T
 
 
-def render_map(path: str, mapp: Map, ship: Optional[Ship]):
+def render_map(path: str, mapp: Map, ship: Optional[Ship] = None):
+    im = draw_map(mapp, ship)
+    im.save(path)
 
+def show_map(mapp: Map, ship: Optional[Ship] = None):
+    im = draw_map(mapp, ship)
+    im.show()
+
+def draw_map(mapp: Map, ship: Optional[Ship] = None):
     width = 800
     height = 500
 
@@ -308,25 +315,25 @@ def render_map(path: str, mapp: Map, ship: Optional[Ship]):
     dims = (width, height)
     center = (cx, cy)
 
-    with Image.new(mode="RGB", size=dims, color="white") as im:
-        g = ImageDraw.Draw(im)
+    im = Image.new(mode="RGB", size=dims, color="white")
+    g = ImageDraw.Draw(im)
 
-        for pos, (color, border_color) in mapp.get_tiles():
-            coord = tsub(tran_position(pos, dims, tile_width, center),
-                         (tile_width // 2, tile_width // 2))
-            g.rectangle(
-                [coord, tadd(coord, (tile_width, tile_width))],
-                fill=color, width=tile_width//10,
-                outline=border_color)
+    for pos, (color, border_color) in mapp.get_tiles():
+        coord = tsub(tran_position(pos, dims, tile_width, center), #TODO center is float float
+                        (tile_width // 2, tile_width // 2))
+        g.rectangle(
+            [coord, tadd(coord, (tile_width, tile_width))],
+            fill=color, width=tile_width//10,
+            outline=border_color)
 
-        if ship is not None:
-            rot = ship.direction * pi / 2
-            pos = tran_position(ship.position, dims, tile_width, center)
-            polygon = transform(SHIP, pos, rot, tile_width / 3).T.tolist()
-            res_poly = tuple([tuple(p[:2]) for p in polygon])
-            g.polygon(tuple(res_poly), "gray")
+    if ship is not None:
+        rot = ship.direction * pi / 2
+        pos = tran_position(ship.position, dims, tile_width, center)
+        polygon = transform(SHIP, pos, rot, tile_width / 3).T.tolist()
+        res_poly = tuple([tuple(p[:2]) for p in polygon])
+        g.polygon(tuple(res_poly), "gray")
 
-        im.save(path)
+    return im
 
 
 ###############################################################################
@@ -673,10 +680,15 @@ INBUILT = {
 Model = Any
 
 
-def compile_code(code: str) -> Model:
-    parser = mapper_parser(True)
+def compile_code(code: str, parser = None) -> Model:
+    if parser is None:
+        parser = mapper_parser(True)
     processed = mapper_preprocessor(code)
     return parser.parse(processed)
+
+
+def compile_codeblocks(codeblocks: List[str], parser = None) -> List[Model]:
+    return [compile_code(b, parser) for b in codeblocks]
 
 
 def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
@@ -694,14 +706,22 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
 
     return result, mapper_map, ship
 
-
-if __name__ == "__main__":
-
-    with open("tut.mpp") as f:
+def generate_level(name: str):
+    with open(f"{name}.mpp") as f:
         code = f.read()
 
     models = [compile_code(code)]
-    result, mapp, ship = run_models(models)
+    _ , mapp, ship = run_models(models)
 
-    print(export_map(mapp))
-    render_map("level_0.png", mapp, ship)
+    with open(f"{name}.txt", "w") as f:
+        f.write(export_map(mapp, sep=';'))
+
+    render_map(f"{name}.png", mapp, ship)
+
+if __name__ == "__main__":
+    generate_level("tut")
+
+    mapp = fill_from_file(Map(), "tut.txt", sep=';')
+    show_map(mapp)
+
+

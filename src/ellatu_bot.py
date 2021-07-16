@@ -1,4 +1,6 @@
+import os
 import re
+from ellatu import ParagraphMessage
 from typing import List, Optional
 import discord
 from discord.channel import TextChannel
@@ -31,24 +33,41 @@ def is_command(message: str) -> bool:
 ###############################################################################
 
 
-def embed_message(embed, message: Message) -> None:
+def embed_message(embed, message: Message) -> Optional[discord.File]:
     if isinstance(message, TextMessage):
         embed.add_field(name="\u200b", value=message.message,
                         inline=False)
+    elif isinstance(message, ParagraphMessage):
+        embed.add_field(name="\u200b", value=message.message,
+                        inline=False)
+        if message.images:
+            _ , thumb_file = message.images[0]
+            print(thumb_file)
+            f = discord.File(thumb_file, "thumb.png")
+            embed.set_image(url="attachment://thumb.png")
+            return f
+
+        return None
     else:
         embed.add_field(name="\u200b", value=str(message),
                         inline=False)
 
 
+def create_embed(title: str, color: discord.Color, desc: Optional[str] = None):
+    if desc is None:
+        return discord.Embed(title=title, color=color)
+    return discord.Embed(title=title, color=color, description=desc)
+
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
                         desc: Optional[str] = None) -> None:
     color = discord.Color.green() if request.alive else discord.Color.red()
-    embed = discord.Embed(color=color, title=title,
-                          description=desc)
+    embed = create_embed(title, color, desc)
+
+    image_file = None
     for message in request.messages:
-        embed_message(embed, message)
-    await channel.send(embed=embed)
+        image_file = embed_message(embed, message)
+    await channel.send(embed=embed, file=image_file)
 
 
 async def send_error(channel: TextChannel, title: str,
@@ -120,6 +139,6 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.command()
     async def run(self, ctx, users: commands.Greedy[discord.Member]):
-        usernames = [str(u.id) for u in users]
-        request = ellatu.run(usernames)
+        usernames = [str(ctx.message.author.id)] + [str(u.id) for u in users]
+        request = self.ellatu.run(usernames)
         await send_response(request, ctx.channel)
