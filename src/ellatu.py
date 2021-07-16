@@ -290,6 +290,26 @@ def save_submit() -> RequestAction:
     return action
 
 
+def save_solution() -> RequestAction:
+    def action(request: Request) -> Request:
+        if not request.alive:
+            return terminate_request(request, "The request is already dead")
+        if request.level is None:
+            return terminate_request(request, "Invalid level")
+        for userid, _ in request.codeblocks.items():
+            if not request.ellatu.db.solution.add_solution(
+                userid,
+                request.level['worldcode'],
+                request.level['code'],
+                3
+            ):
+                return terminate_request(request, "Unable to save solution")
+
+        return trace(request, "The scores have been saved")
+    return action
+
+
+
 def sequence(actions: List[RequestAction]) -> RequestAction:
 
     def action(request: Request) -> Request:
@@ -346,7 +366,8 @@ class Ellatu:
             assign_from_workplace(usernames),
             add_msg(TextMessage("**Running following blocks:**")),
             print_codeblocks(),
-            self.on_run_workflow
+            self.on_run_workflow,
+            save_solution()
         ])(request)
 
     def user_connected(self, username: str) -> bool:

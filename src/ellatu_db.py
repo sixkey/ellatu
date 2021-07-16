@@ -461,8 +461,8 @@ class Solution(Model):
     def __init__(self, collection: Collection, users: Collection,
                  levels: Collection, worlds: Collection):
         super().__init__(collection)
-        self.validator = SequentialValidator([
-            ReqFieldsValidator(["user", "level", "mark", "date"]),
+        self.doc_validator = SequentialValidator([
+            ReqFieldsValidator(["user", "levelcode", "worldcode", "mark", "date"]),
             DictValidator({
                 "user": RefKeyValidator(users, "_id"),
                 "levelcode": RefKeyValidator(levels, "code"),
@@ -473,15 +473,19 @@ class Solution(Model):
             RefValidator(levels, {"levelcode": "code",
                                   "worldcode": "worldcode"})
         ])
+        self.validator = SequentialValidator([
+            PrimaryKeyValidator(collection, ['user', 'levelcode', 'worldcode']),
+            self.doc_validator
+        ])
         self.defaults = {
             "date": datetime.now
         }
 
-    def add_solution(self, userid: MongoId, levelid: MongoId,
+    def add_solution(self, userid: MongoId, worldcode: str, levelcode: str,
                      mark: str) -> Optional[Document]:
-        doc = self.build_dict(user=userid, level=levelid, mark=mark)
-        return self.d_add(doc)
-
+        sol_doc = self.build_dict(user=userid, levelcode=levelcode,
+                                  worldcode=worldcode, mark=mark)
+        return self.d_update(['user', 'levelcode', 'worldcode'], sol_doc)
 
 class EllatuDB:
 

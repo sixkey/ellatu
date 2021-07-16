@@ -12,6 +12,7 @@ import json
 
 from discord.ext import commands
 
+
 def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
@@ -65,15 +66,15 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
             ellatudb.level.d_update(['code', 'worldcode'], level_doc)
 
 
-
-
 if __name__ == "__main__":
 
     # set up logging
     logger = logging.getLogger('discord')
     logger.setLevel(logging.DEBUG)
-    handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-    handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+    handler = logging.FileHandler(
+        filename='discord.log', encoding='utf-8', mode='w')
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
     logger.addHandler(handler)
 
     # load enviroment variables
@@ -82,14 +83,17 @@ if __name__ == "__main__":
     GUILD = os.getenv('DISCORD_GUILD')
 
     ellatudb = EllatuDB("localhost", 27017)
+
     loadworld(ellatudb, 'mapper.json')
 
     ellatu = Ellatu(ellatudb)
 
     mapper_pipeline = MapperPipeline()
+
     ellatu.on_submit_workflow = pipeline_tree({
         "mapper": mapper_pipeline.on_submit()
     })
+
     ellatu.on_run_workflow = pipeline_tree({
         "mapper": mapper_pipeline.on_run()
     })
