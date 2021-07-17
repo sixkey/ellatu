@@ -499,7 +499,7 @@ class Solution(Model):
         }
 
     def add_solution(self, userid: MongoId, worldcode: str, levelcode: str,
-                     mark: str) -> Optional[Document]:
+                     mark: int) -> Optional[Document]:
         sol_doc = self.build_dict(user=userid, levelcode=levelcode,
                                   worldcode=worldcode, mark=mark)
         return self.d_update(['user', 'levelcode', 'worldcode'], sol_doc)

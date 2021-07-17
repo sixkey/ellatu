@@ -1,5 +1,5 @@
 from typing import Dict, Optional, List
-from ellatu import terminate_request
+from ellatu import pipeline_tree, terminate_request
 from mapper_pipeline import MapperPipeline
 from ellatu_db import EllatuDB, Document
 from ellatu import Ellatu, Request, RequestAction
@@ -12,14 +12,6 @@ import json
 from discord.ext import commands
 
 
-def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
-    def action(request: Request) -> Request:
-        if request.level is None:
-            return terminate_request(request, "No level set")
-        if request.level['pipeline'] not in tree:
-            return terminate_request(request, "Unknown pipeline")
-        return tree[request.level['pipeline']](request)
-    return action
 
 
 class JSONEditor:

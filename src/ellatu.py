@@ -174,7 +174,7 @@ def data_action(keys: List[str]) \
     return wrapper
 
 
-def sequence(actions: List[RequestAction]) -> RequestAction:
+def pipeline_sequence(actions: List[RequestAction]) -> RequestAction:
 
     def action(request: Request) -> Request:
         for action in actions:
@@ -183,6 +183,16 @@ def sequence(actions: List[RequestAction]) -> RequestAction:
                 break
         return request
 
+    return action
+
+
+def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "No level set")
+        if request.level['pipeline'] not in tree:
+            return terminate_request(request, "Unknown pipeline")
+        return tree[request.level['pipeline']](request)
     return action
 
 
@@ -353,13 +363,16 @@ def print_levels() -> RequestAction:
     def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         res = ""
         for levelcode, level in request.levels.items():
+            title_str = f"**{level['title']}** [*{levelcode}*]"
+
             locked = is_locked(beaten, level)
             done = is_beaten(beaten, level)
+            title_wrapper = ('', '')
             if done:
-                res += 'BEATEN: '
-            if locked:
-                res += 'LOCKED: '
-            res += f"**{level['title']}** [_{levelcode}_]"
+                title_wrapper = ('__', '__')
+            elif locked:
+                title_wrapper = ('|| Locked: ', '||')
+            res += title_wrapper[0] + title_str + title_wrapper[1]
             pprint(level)
             if level['prereqs']:
                 res += f" needs {','.join(['_' + s + '_' for s in level['prereqs']])}"
@@ -463,7 +476,7 @@ def save_solution() -> RequestAction:
                 userid,
                 request.level['worldcode'],
                 request.level['code'],
-                '3'
+                3
             ):
                 return terminate_request(request, "Unable to save solution")
 
@@ -498,7 +511,7 @@ class Ellatu:
 
     def user_move(self, userkey: UserKey, levelcode: str) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             add_users([userkey]),
             localize_by_code(levelcode),
             permission_check(),
@@ -509,7 +522,7 @@ class Ellatu:
 
     def submit(self, userkey: UserKey, codeblocks: List[str]) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
@@ -522,7 +535,7 @@ class Ellatu:
 
     def run(self, userkeys: List[UserKey]) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             add_users(userkeys),
             localize_by_user(userkeys[0]),
             permission_check(),
@@ -538,13 +551,13 @@ class Ellatu:
 
     def get_worlds(self) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             print_worlds()
         ])(request)
 
     def get_levels(self, userkey: UserKey, worldcode: str) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
             print_levels()
@@ -552,7 +565,7 @@ class Ellatu:
 
     def sign_for_user(self, userkey: UserKey) -> Request:
         request = Request(self)
-        return sequence([
+        return pipeline_sequence([
             localize_by_user(userkey),
             permission_check(),
             print_level_info()
