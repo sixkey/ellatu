@@ -1,48 +1,11 @@
 from inspect import Traceback
-from ellatu import Request, terminate_request, trace, sequence, RequestAction,\
-                  EllatuPipeline, MessageType, ParagraphMessage
+from typing import List
+from ellatu import Request, data_action, limit_codeblocks, limit_columns, \
+                  limit_lines, terminate_request, trace, sequence, \
+                  RequestAction, EllatuPipeline, MessageType, ParagraphMessage
 import mapper
 
 PARSER = mapper.mapper_parser()
-
-
-def limit_codeblocks(number: int) -> RequestAction:
-    def action(request: Request) -> Request:
-        for _, codeblocks in request.codeblocks.items():
-            if len(codeblocks) > number:
-                return terminate_request(
-                    request,
-                    f"There were more then {number} lines"
-                )
-        return request
-    return action
-
-
-def limit_lines(number: int) -> RequestAction:
-    def action(request: Request) -> Request:
-        for _, codeblocks in request.codeblocks.items():
-            for codeblock in codeblocks:
-                if len(codeblock.splitlines()) > number:
-                    return terminate_request(
-                        request,
-                        f"A codeblock was longer than {number} lines"
-                    )
-        return request
-    return action
-
-
-def limit_columns(number: int) -> RequestAction:
-    def action(request: Request) -> Request:
-        for _, codeblocks in request.codeblocks.items():
-            for codeblock in codeblocks:
-                for line in codeblock.splitlines():
-                    if len(line) > number:
-                        return terminate_request(
-                            request,
-                            f"Line was longer than {number} characters"
-                        )
-        return request
-    return action
 
 
 def compile_codeblocks(parser) -> RequestAction:
@@ -62,16 +25,12 @@ def compile_codeblocks(parser) -> RequestAction:
     return action
 
 
-def run_models(request: Request) -> Request:
-
-
-
-    if 'models' not in request.data:
-        return terminate_request(request, "There aren't any compiled blocks")
+@data_action(["models"])
+def run_models(request: Request, models: List[mapper.Model]) -> Request:
     if request.level is None:
         return terminate_request(request, "Invalid level")
 
-    _, mapp, ship = mapper.run_models(request.data["models"])
+    _, mapp, ship = mapper.run_models(models)
 
     for test in request.level['tests']:
         print(test)

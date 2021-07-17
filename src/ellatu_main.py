@@ -7,7 +7,6 @@ import os
 import logging
 from ellatu_bot import EllatuCommandCog, EllatuListeningCog
 from dotenv import load_dotenv
-from mapper import mapper_parser
 import json
 
 from discord.ext import commands

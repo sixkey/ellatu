@@ -1,5 +1,5 @@
 from pprint import pprint
-from typing import Any, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Set, Tuple, TypeVar
 from pymongo import MongoClient
 from datetime import datetime
 
@@ -15,9 +15,6 @@ COL_WORLDS = "worlds"
 
 MAX_CODEBLOCKS = 3
 
-LEVELS = "levels"
-
-
 Value = Any
 
 T = TypeVar("T")
@@ -26,6 +23,13 @@ Collection = Any
 Document = Dict[Any, Any]
 MongoId = str
 
+ClientService = str
+ClientId = str
+UserKey = Tuple[ClientService, ClientId]
+
+###############################################################################
+# Misc
+###############################################################################
 
 def int_in_range(value: int, min_value: Optional[int],
                  max_value: Optional[int]) -> bool:
@@ -34,6 +38,9 @@ def int_in_range(value: int, min_value: Optional[int],
     if max_value is not None and value > max_value:
         return False
     return True
+
+def get_userkey(doc: Document) -> UserKey:
+    return (doc["client_ser"], doc['client_id'])
 
 
 ###############################################################################
@@ -54,7 +61,7 @@ class Validator(Generic[T]):
         return False
 
     def validate(self, value: T) -> bool:
-        trace = []
+        trace: List[str] = []
         if not self.pred(value, trace):
             print("Following value is invalid: ")
             pprint(value)
@@ -157,10 +164,10 @@ class PrimaryKeyValidator(Validator[Document]):
 
 class ReqValidator(Validator[Optional[Any]]):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("value is required")
 
-    def pred(self, value: Optional[Any]) -> bool:
+    def pred(self, value: Optional[Any], _ : List[str]) -> bool:
         return value is not None
 
 
@@ -287,7 +294,7 @@ class Model:
             key_doc[key] = doc[key]
         return self.collection.find_one_and_update(key_doc, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER)
 
-    def get(self, **kwargs: Kwargs) -> Optional[Document]:
+    def get(self, **kwargs: Kwargs) -> List[Document]:
         query = self.build_dict(**kwargs)
         return self.collection.find(query)
 
@@ -301,16 +308,9 @@ class Model:
     def exists(self, **kwargs: Kwargs) -> bool:
         return self.get_one(**kwargs) is not None
 
-ClientService = str
-ClientId = str
-UserKey = Tuple[ClientService, ClientId]
-
-def get_userkey(doc: Document) -> UserKey:
-    return (doc["client_ser"], doc['client_id'])
-
 class User(Model):
 
-    def __init__(self, collection: Collection, levels: Collection):
+    def __init__(self, collection: Collection):
         super().__init__(collection)
         self.validator = SequentialValidator([
             ReqFieldsValidator(["client_ser", "client_id", "username"]),
@@ -516,7 +516,7 @@ class EllatuDB:
     def __init__(self, host: str, port: int):
         self.client = MongoClient(host, port)
         self.db = self.client[DB_DEV]
-        self.user = User(self.db[COL_USERS], self.db[COL_LEVELS])
+        self.user = User(self.db[COL_USERS])
         self.world = World(self.db[COL_WORLDS])
         self.level = Level(self.db[COL_LEVELS], self.db[COL_WORLDS])
         self.workplace = Workplace(self.db[COL_WORKPLACES],

@@ -1,8 +1,30 @@
 from pprint import pprint
 import re
 from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
-from typing import Dict, List, Callable, Optional, Any, Set, Tuple
+from typing import Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
+
+###############################################################################
+# Types
+###############################################################################
+
+F = TypeVar('F', bound=Callable[..., Any])
+
+###############################################################################
+# Misc.
+###############################################################################
+
+
+def level_code_parts(worldcode: str, levelcode: str) -> str:
+    return f"{worldcode}-{levelcode}"
+
+
+def level_code_doc(level: Document) -> str:
+    return level_code_parts(level["worldcode"], level["code"])
+
+###############################################################################
+# Messages
+###############################################################################
 
 
 class MessageType(Enum):
@@ -30,6 +52,7 @@ class TextMessage(Message):
     def __str__(self) -> str:
         return self.prefix(self.message)
 
+
 class ParagraphMessage(Message):
 
     def __init__(self, message: str,
@@ -54,6 +77,12 @@ class ParagraphMessage(Message):
     def __str__(self) -> str:
         return self.prefix(self.message)
 
+
+###############################################################################
+# Request
+###############################################################################
+
+
 class Request:
 
     def __init__(self, ellatu: "Ellatu",
@@ -66,7 +95,7 @@ class Request:
         self.level: Optional[Document] = None
         self.levels: Dict[str, Document] = {}
 
-        self.users: Dict[MongoId, Document] = {}
+        self.users: Dict[UserKey, Document] = {}
 
         self.codeblocks: Dict[MongoId, List[str]
                               ] = codeblocks if codeblocks else {}
@@ -83,6 +112,12 @@ class Request:
         return res
 
 
+RequestAction = Callable[[Request], Request]
+
+
+# Message Utils ###############################################################
+
+
 def log_msg(request: Request, message: str,
             message_type: MessageType = MessageType.LOG) -> Request:
     request.add_message(TextMessage(message, message_type=message_type))
@@ -94,27 +129,11 @@ def trace(request: Request, message: str) -> Request:
 
 
 def log(request: Request, message: str) -> Request:
-    return log_msg(request, message, MessageType.TRACE)
+    return log_msg(request, message, MessageType.LOG)
 
 
 def error(request: Request, message: str) -> Request:
     return log_msg(request, message, MessageType.ERROR)
-
-
-def terminate_request(request: Request, message: str) -> Request:
-    request.alive = False
-    return error(request, message)
-
-
-RequestAction = Callable[[Request], Request]
-
-
-def const_workflow(request: Request) -> Request:
-    return request
-
-
-def kill_request(request: Request) -> Request:
-    return terminate_request(request, "The request has been killed")
 
 
 def add_msg(message: Message) -> RequestAction:
@@ -122,6 +141,52 @@ def add_msg(message: Message) -> RequestAction:
         request.add_message(message)
         return request
     return action
+
+
+def terminate_request(request: Request, message: str) -> Request:
+    request.alive = False
+    return error(request, message)
+
+
+def const_action(request: Request) -> Request:
+    return request
+
+
+def kill_request(request: Request) -> Request:
+    return terminate_request(request, "The request has been killed")
+
+
+# Action utils ################################################################
+
+ExtRequestAction = Callable[..., Request]
+
+def data_action(keys: List[str]) \
+    -> Callable[[ExtRequestAction], RequestAction]:
+    def wrapper(func: ExtRequestAction) -> RequestAction:
+        def action(request: Request) -> Request:
+            values = []
+            for key in keys:
+                if key not in request.data:
+                    return terminate_request(request, "Internal error")
+                values.append(request.data[key])
+            return func(request, *values)
+        return action
+    return wrapper
+
+
+def sequence(actions: List[RequestAction]) -> RequestAction:
+
+    def action(request: Request) -> Request:
+        for action in actions:
+            request = action(request)
+            if not request.alive:
+                break
+        return request
+
+    return action
+
+
+# User actions ################################################################
 
 
 def add_users(userkeys: List[UserKey]) -> RequestAction:
@@ -136,6 +201,19 @@ def add_users(userkeys: List[UserKey]) -> RequestAction:
                               f"The users were not found")
         return request
     return action
+
+
+def move_users() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "Invalid level")
+        for userkey, _ in request.users.items():
+            if not request.ellatu.db.user.move_user(userkey, request.level["worldcode"], request.level["code"]):
+                return terminate_request(request, "Unable to move user")
+        return request
+    return action
+
+# Codeblocks actions ##########################################################
 
 
 def assign_codeblocks(assignments: Dict[UserKey, List[str]]) -> RequestAction:
@@ -167,6 +245,7 @@ def assign_from_workplace(userkeys: List[UserKey]) -> RequestAction:
         return request
     return action
 
+
 def print_codeblocks() -> RequestAction:
     def action(request: Request) -> Request:
         res = ""
@@ -190,6 +269,48 @@ def print_codeblocks() -> RequestAction:
     return action
 
 
+def limit_codeblocks(number: int) -> RequestAction:
+    def action(request: Request) -> Request:
+        for _, codeblocks in request.codeblocks.items():
+            if len(codeblocks) > number:
+                return terminate_request(
+                    request,
+                    f"There were more then {number} lines"
+                )
+        return request
+    return action
+
+
+def limit_lines(number: int) -> RequestAction:
+    def action(request: Request) -> Request:
+        for _, codeblocks in request.codeblocks.items():
+            for codeblock in codeblocks:
+                if len(codeblock.splitlines()) > number:
+                    return terminate_request(
+                        request,
+                        f"A codeblock was longer than {number} lines"
+                    )
+        return request
+    return action
+
+
+def limit_columns(number: int) -> RequestAction:
+    def action(request: Request) -> Request:
+        for _, codeblocks in request.codeblocks.items():
+            for codeblock in codeblocks:
+                for line in codeblock.splitlines():
+                    if len(line) > number:
+                        return terminate_request(
+                            request,
+                            f"Line was longer than {number} characters"
+                        )
+        return request
+    return action
+
+
+# Localize actions ############################################################
+
+
 def localize_by_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
         user = request.ellatu.db.user.get_user(userkey)
@@ -206,7 +327,8 @@ def localize_by_code(code: str) -> RequestAction:
         if match is None:
             return terminate_request(request, "Invalid level code format")
         worldcode, levelcode = match.group(1), match.group(2)
-        level = request.ellatu.db.level.get_one(worldcode=worldcode, code=levelcode)
+        level = request.ellatu.db.level.get_one(
+            worldcode=worldcode, code=levelcode)
         if not level:
             return terminate_request(request, "Invalid level code")
         request.level = level
@@ -214,23 +336,7 @@ def localize_by_code(code: str) -> RequestAction:
     return action
 
 
-def move_users() -> RequestAction:
-    def action(request: Request) -> Request:
-        if request.level is None:
-            return terminate_request(request, "Invalid level")
-        for userkey, _ in request.users.items():
-            if not request.ellatu.db.user.move_user(userkey, request.level["worldcode"], request.level["code"]):
-                return terminate_request(request, "Unable to move user")
-        return request
-    return action
-
-
-def level_code_parts(worldcode: str, levelcode: str) -> str:
-    return f"{worldcode}-{levelcode}"
-
-
-def level_code_doc(level: Document) -> str:
-    return level_code_parts(level["worldcode"], level["code"])
+# Level/world actions #########################################################
 
 
 def add_levels_worldcode(worldcode: str) -> RequestAction:
@@ -241,58 +347,11 @@ def add_levels_worldcode(worldcode: str) -> RequestAction:
         return request
     return action
 
-def print_level_info() -> RequestAction:
-    def action(request: Request) -> Request:
-        if request.level is None:
-            return trace(request, "No level selected")
-
-        request.add_message(ParagraphMessage(
-            f"**{request.level['title']} [{level_code_doc(request.level)}]**\n" +
-            request.level['desc']))
-        return request
-    return action
-
-def beaten_from_solutions(solutions: List[Document]) -> Set[Tuple[str, str]]:
-    return set([(s['worldcode'], s['levelcode']) for s in solutions])
-
-def permission_check() -> RequestAction:
-    def action(request: Request) -> Request:
-        if request.level is None:
-            return trace(request, "No level to check permission for")
-
-        not_allowed_users = []
-        for userid, user in request.users.items():
-            sols = request.ellatu.db.solution.get_solutions(userid, request.level['worldcode'])
-            beaten = beaten_from_solutions(sols)
-            if is_locked(beaten, request.level):
-                not_allowed_users.append(user['username'])
-        if not_allowed_users:
-            return terminate_request(
-                request,
-                "Users are not allowed to be in the level: " +
-                f"{','.join(not_allowed_users)}")
-        return request
-    return action
-
-def is_locked(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
-    if beaten is None:
-        return False
-    for pre in level['prereqs']:
-        if (level['worldcode'], pre) not in beaten:
-            return True
-    return False
-
-def is_beaten(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
-    if beaten is None:
-        return False
-    return (level['worldcode'], level['code']) in beaten
-
 
 def print_levels() -> RequestAction:
-    def action(request: Request) -> Request:
+    @data_action(["beaten"])
+    def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         res = ""
-        beaten = request.data["beaten"] if 'beaten' in request.data else None
-        print(beaten)
         for levelcode, level in request.levels.items():
             locked = is_locked(beaten, level)
             done = is_beaten(beaten, level)
@@ -308,6 +367,19 @@ def print_levels() -> RequestAction:
         return trace(request, res)
     return action
 
+
+def print_level_info() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return trace(request, "No level selected")
+
+        request.add_message(ParagraphMessage(
+            f"**{request.level['title']} [{level_code_doc(request.level)}]**\n" +
+            request.level['desc']))
+        return request
+    return action
+
+
 def print_worlds() -> RequestAction:
     def action(request: Request) -> Request:
         worlds = request.ellatu.db.world.get()
@@ -317,10 +389,50 @@ def print_worlds() -> RequestAction:
         return trace(request, res)
     return action
 
+# Permission actions ##########################################################
 
-# def move_users(levelcode: str) -> RequestAction:
-#     def action(request: Request) -> Request:
-#         for username, user in request.users.items():
+
+def beaten_from_solutions(solutions: List[Document]) -> Set[Tuple[str, str]]:
+    return set([(s['worldcode'], s['levelcode']) for s in solutions])
+
+
+def is_locked(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
+    if beaten is None:
+        return False
+    for pre in level['prereqs']:
+        if (level['worldcode'], pre) not in beaten:
+            return True
+    return False
+
+
+def is_beaten(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
+    if beaten is None:
+        return False
+    return (level['worldcode'], level['code']) in beaten
+
+
+def permission_check() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return trace(request, "No level to check permission for")
+
+        not_allowed_users = []
+        for _, user in request.users.items():
+            sols = request.ellatu.db.solution.get_solutions(
+                user["_id"], request.level['worldcode'])
+            beaten = beaten_from_solutions(sols)
+            if is_locked(beaten, request.level):
+                not_allowed_users.append(user['username'])
+        if not_allowed_users:
+            return terminate_request(
+                request,
+                "Users are not allowed to be in the level: " +
+                f"{','.join(not_allowed_users)}")
+        return request
+    return action
+
+
+# Submission actions ##########################################################
 
 
 def save_submit() -> RequestAction:
@@ -351,12 +463,13 @@ def save_solution() -> RequestAction:
                 userid,
                 request.level['worldcode'],
                 request.level['code'],
-                3
+                '3'
             ):
                 return terminate_request(request, "Unable to save solution")
 
         return trace(request, "The scores have been saved")
     return action
+
 
 def load_beaten_by_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
@@ -371,30 +484,16 @@ def load_beaten_by_user(userkey: UserKey) -> RequestAction:
     return action
 
 
-def sequence(actions: List[RequestAction]) -> RequestAction:
+###############################################################################
+# Ellatu interface
+###############################################################################
 
-    def action(request: Request) -> Request:
-        for action in actions:
-            request = action(request)
-            if not request.alive:
-                break
-        return request
-
-    return action
-
-class EllatuPipeline:
-
-    def on_submit(self, request: Request) -> Request:
-        return request
-
-    def on_run(self, request: Request) -> Request:
-        return request
 
 class Ellatu:
 
     def __init__(self, ellatu_db: EllatuDB):
-        self.on_submit_workflow = const_workflow
-        self.on_run_workflow = const_workflow
+        self.on_submit_workflow: RequestAction = const_action
+        self.on_run_workflow:RequestAction = const_action
         self.db = ellatu_db
 
     def user_move(self, userkey: UserKey, levelcode: str) -> Request:
@@ -458,3 +557,12 @@ class Ellatu:
             permission_check(),
             print_level_info()
         ])(request)
+
+
+class EllatuPipeline:
+
+    def on_submit(self) -> RequestAction:
+        return const_action
+
+    def on_run(self) -> RequestAction:
+        return const_action
