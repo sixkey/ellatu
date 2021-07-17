@@ -6,7 +6,7 @@ import mapper
 PARSER = mapper.mapper_parser()
 
 
-def limit_codeblocks(number: int) -> Request:
+def limit_codeblocks(number: int) -> RequestAction:
     def action(request: Request) -> Request:
         for _, codeblocks in request.codeblocks.items():
             if len(codeblocks) > number:
@@ -18,7 +18,7 @@ def limit_codeblocks(number: int) -> Request:
     return action
 
 
-def limit_lines(number: int) -> Request:
+def limit_lines(number: int) -> RequestAction:
     def action(request: Request) -> Request:
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
@@ -31,7 +31,7 @@ def limit_lines(number: int) -> Request:
     return action
 
 
-def limit_columns(number: int) -> Request:
+def limit_columns(number: int) -> RequestAction:
     def action(request: Request) -> Request:
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
@@ -54,22 +54,24 @@ def compile_codeblocks(parser) -> RequestAction:
                 models += mapper.compile_codeblocks(codeblocks, parser)
             except Exception as e:
 
-                return terminate_request(request, "Compilation error:\n " + 
+                return terminate_request(request, "Compilation error:\n " +
                                          str(e))
 
-        request.models = models
+        request.data["models"] = models
         return trace(request, "Compilation success")
     return action
 
 
 def run_models(request: Request) -> Request:
 
-    if request.models is None:
+
+
+    if 'models' not in request.data:
         return terminate_request(request, "There aren't any compiled blocks")
     if request.level is None:
         return terminate_request(request, "Invalid level")
 
-    _, mapp, ship = mapper.run_models(request.models)
+    _, mapp, ship = mapper.run_models(request.data["models"])
 
     for test in request.level['tests']:
         print(test)
@@ -79,7 +81,7 @@ def run_models(request: Request) -> Request:
             mapper.render_map("temp.png", diff_map, ship)
             request.add_message(ParagraphMessage("here is the diff ![diff][temp.png]", message_type= MessageType.ERROR))
             request.alive = False
-            return request 
+            return request
 
     return trace(request, "The tests passed")
 

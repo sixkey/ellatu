@@ -1,3 +1,8 @@
+[tool.pyright]
+include = ["scr"]
+executionEnvironments = [
+  { root = "src" }
+]
 [build-system]
 requires = [
     "setuptools>=42",

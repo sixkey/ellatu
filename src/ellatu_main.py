@@ -55,11 +55,11 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
     with open(path) as f:
         world = json.load(f)
         world_doc = JSONEditor(world).select(
-            ['title', 'code', 'tags', 'prereq']).mat()
+            ['title', 'code', 'tags', 'prereqs']).mat()
         ellatudb.world.d_update(['code'], world_doc)
         for level in world['levels']:
             level_doc = JSONEditor(level).select(
-                ['title', 'desc', 'code', 'tags', 'prepeq', 'tests', 'pipeline']
+                ['title', 'desc', 'code', 'tags', 'prereqs', 'tests', 'pipeline']
             ).inject(
                 {'worldcode': world['code']}
             ).mat()

@@ -75,7 +75,7 @@ generator
 
 rng_gen::Range
     =
-    '[' start:expression '...' end:expression [(',' step:expression)] ']'
+    '[' start:expression '..' end:expression [(',' step:expression)] ']'
     ;  
 
 cond 

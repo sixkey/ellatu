@@ -92,10 +92,6 @@ class EllatuListeningCog(commands.Cog):
     async def on_message(self, message):
         print(f'{message.author}, {message.content}')
 
-        if message.author == self.bot.user or not is_command(message.content):
-            return
-
-
 ###############################################################################
 # COMMANDS
 ###############################################################################
@@ -115,7 +111,7 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.command()
     async def levels(self, ctx, worldcode: str):
-        request = self.ellatu.get_levels(worldcode)
+        request = self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
         await send_response(request, ctx.channel, title="Levels",
                             desc=f"levels in **{worldcode}**")
 

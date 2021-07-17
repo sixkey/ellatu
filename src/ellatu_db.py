@@ -368,12 +368,12 @@ class World(Model):
     def __init__(self, collection: Collection):
         super().__init__(collection)
         self.doc_validator = SequentialValidator([
-            ReqFieldsValidator(["title", "code", "tags", "prerequisites"]),
+            ReqFieldsValidator(["title", "code", "tags", "prereqs"]),
             DictValidator({
                 "title": titleValidator,
                 "code": codeValidator,
                 "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
-                "prerequisites": ListValidator(RefKeyValidator(collection, "code")),
+                "prereqs": ListValidator(RefKeyValidator(collection, "code")),
             })
         ])
         self.validator = SequentialValidator([
@@ -382,7 +382,7 @@ class World(Model):
         ])
         self.defaults = {
             "tags": [],
-            "prerequisites": [],
+            "prereqs": [],
         }
 
 
@@ -392,7 +392,7 @@ class Level(Model):
         super().__init__(collection)
         self.doc_validator = SequentialValidator([
             ReqFieldsValidator(
-                ["title", "code", "worldcode", "prerequisites", "pipeline"]),
+                ["title", "code", "worldcode", "prereqs", "pipeline"]),
             DictValidator({
                 "title": titleValidator,
                 "desc": StringValidator(),
@@ -400,7 +400,7 @@ class Level(Model):
                 "code": codeValidator,
                 "worldcode": RefKeyValidator(worlds, "code"),
 
-                "prerequisites": ListValidator(RefKeyValidator(collection, "code")),
+                "prereqs": ListValidator(RefKeyValidator(collection, "code")),
 
                 "pipeline": StringValidator(min_size=4, max_size=16),
                 "tests": ListValidator(None),
@@ -415,7 +415,7 @@ class Level(Model):
         self.defaults = {
             "desc": "",
             "tags": [],
-            "prerequisites": [],
+            "prereqs": [],
             "tests": []
         }
 
@@ -503,6 +503,13 @@ class Solution(Model):
         sol_doc = self.build_dict(user=userid, levelcode=levelcode,
                                   worldcode=worldcode, mark=mark)
         return self.d_update(['user', 'levelcode', 'worldcode'], sol_doc)
+
+    def get_solutions(self, userid: MongoId, worldcode: Optional[str] = None) \
+                        -> List[Document]:
+        query = {"user": userid}
+        if worldcode is not None:
+            query['worldcode'] = worldcode
+        return self.collection.find(query)
 
 class EllatuDB:
 

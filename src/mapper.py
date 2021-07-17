@@ -7,6 +7,7 @@ from pprint import pprint
 import tatsu
 from tatsu.walkers import NodeWalker
 import json
+import sys
 
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
@@ -716,12 +717,10 @@ def generate_level(name: str):
     with open(f"{name}.txt", "w") as f:
         f.write(export_map(mapp, sep=';'))
 
-    render_map(f"{name}.png", mapp, ship)
+    start_ship = Ship(mapp)
+    render_map(f"{name}.png", mapp, start_ship)
 
 if __name__ == "__main__":
-    generate_level("tut")
-
-    mapp = fill_from_file(Map(), "tut.txt", sep=';')
-    show_map(mapp)
+    generate_level(sys.argv[1])
 
 

@@ -1,6 +1,7 @@
+from pprint import pprint
 import re
 from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
-from typing import Dict, List, Callable, Optional, Any
+from typing import Dict, List, Callable, Optional, Any, Set, Tuple
 from enum import Enum
 
 
@@ -69,6 +70,8 @@ class Request:
 
         self.codeblocks: Dict[MongoId, List[str]
                               ] = codeblocks if codeblocks else {}
+
+        self.data: Dict[str, Any] = {}
 
     def add_message(self, message: Message) -> None:
         self.messages.append(message)
@@ -249,11 +252,59 @@ def print_level_info() -> RequestAction:
         return request
     return action
 
+def beaten_from_solutions(solutions: List[Document]) -> Set[Tuple[str, str]]:
+    return set([(s['worldcode'], s['levelcode']) for s in solutions])
+
+def permission_check() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return trace(request, "No level to check permission for")
+
+        not_allowed_users = []
+        for userid, user in request.users.items():
+            sols = request.ellatu.db.solution.get_solutions(userid, request.level['worldcode'])
+            beaten = beaten_from_solutions(sols)
+            if is_locked(beaten, request.level):
+                not_allowed_users.append(user['username'])
+        if not_allowed_users:
+            return terminate_request(
+                request,
+                "Users are not allowed to be in the level: " +
+                f"{','.join(not_allowed_users)}")
+        return request
+    return action
+
+def is_locked(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
+    if beaten is None:
+        return False
+    for pre in level['prereqs']:
+        if (level['worldcode'], pre) not in beaten:
+            return True
+    return False
+
+def is_beaten(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
+    if beaten is None:
+        return False
+    return (level['worldcode'], level['code']) in beaten
+
+
 def print_levels() -> RequestAction:
     def action(request: Request) -> Request:
         res = ""
+        beaten = request.data["beaten"] if 'beaten' in request.data else None
+        print(beaten)
         for levelcode, level in request.levels.items():
-            res += f"{levelcode}: {level['title']}"
+            locked = is_locked(beaten, level)
+            done = is_beaten(beaten, level)
+            if done:
+                res += 'BEATEN: '
+            if locked:
+                res += 'LOCKED: '
+            res += f"**{level['title']}** [_{levelcode}_]"
+            pprint(level)
+            if level['prereqs']:
+                res += f" needs {','.join(['_' + s + '_' for s in level['prereqs']])}"
+            res += '\n'
         return trace(request, res)
     return action
 
@@ -307,6 +358,17 @@ def save_solution() -> RequestAction:
         return trace(request, "The scores have been saved")
     return action
 
+def load_beaten_by_user(userkey: UserKey) -> RequestAction:
+    def action(request: Request) -> Request:
+        user = request.ellatu.db.user.get_user(userkey)
+        if user is None:
+            return terminate_request(request, "User not found")
+        solutions = request.ellatu.db.solution.get_solutions(user["_id"])
+        beaten = set([(s['worldcode'], s['levelcode']) for s in solutions])
+        print(beaten)
+        request.data["beaten"] = beaten
+        return request
+    return action
 
 
 def sequence(actions: List[RequestAction]) -> RequestAction:
@@ -340,6 +402,7 @@ class Ellatu:
         return sequence([
             add_users([userkey]),
             localize_by_code(levelcode),
+            permission_check(),
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
             print_level_info()
@@ -349,8 +412,9 @@ class Ellatu:
         request = Request(self)
         return sequence([
             add_users([userkey]),
-            assign_codeblocks({userkey: codeblocks}),
             localize_by_user(userkey),
+            permission_check(),
+            assign_codeblocks({userkey: codeblocks}),
             self.on_submit_workflow,
             save_submit(),
             add_msg(TextMessage("**The codeblocks was added to:**")),
@@ -362,6 +426,7 @@ class Ellatu:
         return sequence([
             add_users(userkeys),
             localize_by_user(userkeys[0]),
+            permission_check(),
             assign_from_workplace(userkeys),
             add_msg(TextMessage("**Running following blocks:**")),
             print_codeblocks(),
@@ -374,16 +439,15 @@ class Ellatu:
 
     def get_worlds(self) -> Request:
         request = Request(self)
-
         return sequence([
             print_worlds()
         ])(request)
 
-    def get_levels(self, worldcode: str) -> Request:
+    def get_levels(self, userkey: UserKey, worldcode: str) -> Request:
         request = Request(self)
-
         return sequence([
             add_levels_worldcode(worldcode),
+            load_beaten_by_user(userkey),
             print_levels()
         ])(request)
 
@@ -391,5 +455,6 @@ class Ellatu:
         request = Request(self)
         return sequence([
             localize_by_user(userkey),
+            permission_check(),
             print_level_info()
         ])(request)
