@@ -703,7 +703,10 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
         for dec in model['decls']:
             walker.walk(dec)
     scopestack.add_scope()
-    result = walker.walk(scopestack.lookup('main').body)
+    main_function = scopestack.lookup('main')
+    if main_function is None:
+        raise RuntimeError("No main found")
+    result = walker.walk(main_function.body)
 
     return result, mapper_map, ship
 

@@ -1,7 +1,7 @@
 import re
 from ellatu_db import UserKey
-from ellatu import Ellatu, ParagraphMessage
-from typing import List, Optional
+from ellatu import Ellatu, MessageSegment, ParagraphMessage
+from typing import List, Optional, Tuple
 import discord
 from discord.channel import TextChannel
 from discord.ext import commands
@@ -63,6 +63,16 @@ def embed_message(embed: discord.Embed, message: Message) -> Optional[discord.Fi
     return None
 
 
+def flush_blocks(embed: discord.Embed, title: Optional[str],
+                 blocks: List[str]) -> None:
+    if not title and not blocks:
+        return
+    title = title if title else '\u200b'
+    value = '\n\n'.join(blocks) if blocks else '\u200b'
+    blocks.clear()
+    embed.add_field(name=title, value=value, inline=True)
+
+
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
                         desc: Optional[str] = None) -> None:
@@ -70,8 +80,30 @@ async def send_response(request: Request, channel: TextChannel,
     embed = create_embed(title, color, desc)
 
     image_file = None
+
+    text_blocks: List[str] = []
+    images: List[Tuple[str, str]] = []
+    name = None
+
     for message in request.messages:
-        image_file = embed_message(embed, message)
+        if isinstance(message, TextMessage):
+            text_blocks.append(message.message)
+        elif isinstance(message, ParagraphMessage):
+            text_blocks.append(message.message)
+            if message.images:
+                images += message.images
+        elif isinstance(message, MessageSegment):
+            flush_blocks(embed, name, text_blocks)
+            name = message.title
+        else:
+            text_blocks.append(str(message))
+    flush_blocks(embed, name, text_blocks)
+
+    image_file = None
+    if images:
+        _, thumb_file = images[0]
+        image_file = discord.File(thumb_file, "thumb.png")
+        embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
 
 
@@ -118,33 +150,36 @@ class EllatuCommandCog(commands.Cog):
     @commands.command()
     async def levels(self, ctx, worldcode: str) -> None:
         request = self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
-        await send_response(request, ctx.channel, title="Levels",
-                            desc=f"levels in **{worldcode}**")
+        await send_response(request, ctx.channel, title="Levels")
 
     @commands.command()
     async def worlds(self, ctx) -> None:
         request = self.ellatu.get_worlds()
-        await send_response(request, ctx.channel)
+        await send_response(request, ctx.channel, title="Worlds")
 
     @commands.command()
     async def move(self, ctx, levelcode: str) -> None:
         request = self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
-        await send_response(request, ctx.channel)
+        await send_response(request, ctx.channel, title="Move")
 
     @commands.command()
     async def sign(self, ctx) -> None:
         request = self.ellatu.sign_for_user(dc_userkey(ctx.author))
-        await send_response(request, ctx.channel)
+        await send_response(request, ctx.channel, title="Sign")
 
     @commands.command()
     async def submit(self, ctx, *, text: str) -> None:
         codeblocks = extract_code_blocks(text)
         request = self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
-        await send_response(request, ctx.channel)
+        await send_response(request, ctx.channel, title="Submit")
 
     @commands.command()
     async def run(self, ctx, users: commands.Greedy[discord.Member]) -> None:
         userkeys = [dc_userkey(ctx.message.author)] + \
             [dc_userkey(u) for u in users]
         request = self.ellatu.run(userkeys)
-        await send_response(request, ctx.channel)
+        await send_response(request, ctx.channel, title="Run")
+
+#   @commands.Cog.listener()
+#   async def on_command_error(self, ctx, error):
+#       await ctx.send(f"{str(error)}")
