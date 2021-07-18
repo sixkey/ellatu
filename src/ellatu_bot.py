@@ -1,11 +1,11 @@
 import re
-from ellatu_db import UserKey
-from ellatu import Ellatu, MessageSegment, ParagraphMessage
 from typing import List, Optional, Tuple
+from ellatu_db import UserKey
+from ellatu import Ellatu, Request, TextMessage, MessageSegment, \
+    ParagraphMessage
 import discord
 from discord.channel import TextChannel
 from discord.ext import commands
-from ellatu import Message, Request, TextMessage
 
 ###############################################################################
 # Utils
@@ -38,29 +38,10 @@ def is_command(message: str) -> bool:
 
 
 def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
-    -> discord.Embed:
+        -> discord.Embed:
     if desc is None:
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
-
-
-def embed_message(embed: discord.Embed, message: Message) -> Optional[discord.File]:
-    if isinstance(message, TextMessage):
-        embed.add_field(name="\u200b", value=message.message,
-                        inline=False)
-    elif isinstance(message, ParagraphMessage):
-        embed.add_field(name="\u200b", value=message.message,
-                        inline=False)
-        if message.images:
-            _, thumb_file = message.images[0]
-            print(thumb_file)
-            f = discord.File(thumb_file, "thumb.png")
-            embed.set_image(url="attachment://thumb.png")
-            return f
-    else:
-        embed.add_field(name="\u200b", value=str(message),
-                        inline=False)
-    return None
 
 
 def flush_blocks(embed: discord.Embed, title: Optional[str],
