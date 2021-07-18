@@ -42,6 +42,16 @@ class Message:
         return f"[{self.message_type}]: {message_body}"
 
 
+class MessageSegment(Message):
+
+    def __init__(self, title: str, message_type: MessageType = MessageType.LOG):
+        super().__init__(message_type)
+        self.title = title
+
+    def __str__(self) -> str:
+        return self.prefix(self.title)
+
+
 class TextMessage(Message):
 
     def __init__(self, message: str,
@@ -381,14 +391,15 @@ def print_levels() -> RequestAction:
     return action
 
 
-def print_level_info() -> RequestAction:
+def print_level_info(desc: bool = True) -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
             return trace(request, "No level selected")
-
-        request.add_message(ParagraphMessage(
-            f"**{request.level['title']} [{level_code_doc(request.level)}]**\n" +
-            request.level['desc']))
+        text = f"**{request.level['title']}** " + \
+            f"[_{level_code_doc(request.level)}_]"
+        if desc:
+            text += '\n' + request.level['desc']
+        request.add_message(ParagraphMessage(text))
         return request
     return action
 
@@ -398,7 +409,7 @@ def print_worlds() -> RequestAction:
         worlds = request.ellatu.db.world.get()
         res = ""
         for world in worlds:
-            res += f"{world['code']}: {world['title']}\n"
+            res += f"**{world['title']}** [_{world['code']}_]\n"
         return trace(request, res)
     return action
 
@@ -529,8 +540,8 @@ class Ellatu:
             assign_codeblocks({userkey: codeblocks}),
             self.on_submit_workflow,
             save_submit(),
-            add_msg(TextMessage("**The codeblocks was added to:**")),
-            print_level_info()
+            add_msg(MessageSegment("The codeblocks was added to:")),
+            print_level_info(desc=False)
         ])(request)
 
     def run(self, userkeys: List[UserKey]) -> Request:
@@ -540,7 +551,7 @@ class Ellatu:
             localize_by_user(userkeys[0]),
             permission_check(),
             assign_from_workplace(userkeys),
-            add_msg(TextMessage("**Running following blocks:**")),
+            add_msg(MessageSegment("Running following blocks:")),
             print_codeblocks(),
             self.on_run_workflow,
             save_solution()
@@ -552,6 +563,7 @@ class Ellatu:
     def get_worlds(self) -> Request:
         request = Request(self)
         return pipeline_sequence([
+            add_msg(MessageSegment('Available worlds')),
             print_worlds()
         ])(request)
 
@@ -560,6 +572,7 @@ class Ellatu:
         return pipeline_sequence([
             add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
+            add_msg(MessageSegment('Available levels in _mapper_')),
             print_levels()
         ])(request)
 

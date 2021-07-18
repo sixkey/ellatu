@@ -1,6 +1,6 @@
 from inspect import Traceback
 from typing import List
-from ellatu import Request, data_action, limit_codeblocks, limit_columns, \
+from ellatu import MessageSegment, Request, add_msg, data_action, limit_codeblocks, limit_columns, \
                   limit_lines, terminate_request, trace, pipeline_sequence, \
                   RequestAction, EllatuPipeline, MessageType, ParagraphMessage
 import mapper
@@ -21,7 +21,7 @@ def compile_codeblocks(parser) -> RequestAction:
                                          str(e))
 
         request.data["models"] = models
-        return trace(request, "Compilation success")
+        return trace(request, "Success")
     return action
 
 
@@ -29,8 +29,10 @@ def compile_codeblocks(parser) -> RequestAction:
 def run_models(request: Request, models: List[mapper.Model]) -> Request:
     if request.level is None:
         return terminate_request(request, "Invalid level")
-
-    _, mapp, ship = mapper.run_models(models)
+    try:
+        _, mapp, ship = mapper.run_models(models)
+    except RuntimeError as e:
+        return terminate_request(request, "Runtime error: " + str(e))
 
     for test in request.level['tests']:
         print(test)
@@ -42,7 +44,7 @@ def run_models(request: Request, models: List[mapper.Model]) -> Request:
             request.alive = False
             return request
 
-    return trace(request, "The tests passed")
+    return trace(request, "Passed all tests")
 
 
 class MapperPipeline(EllatuPipeline):
@@ -55,11 +57,13 @@ class MapperPipeline(EllatuPipeline):
             limit_codeblocks(3),
             limit_lines(10),
             limit_columns(79),
+            add_msg(MessageSegment('Compilation')),
             compile_codeblocks(self.parser)
         ])
 
     def on_run(self) -> RequestAction:
         return pipeline_sequence([
             self.on_submit(),
+            add_msg(MessageSegment('Testing')),
             run_models
         ])
