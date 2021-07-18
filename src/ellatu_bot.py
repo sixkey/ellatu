@@ -86,6 +86,7 @@ async def send_response(request: Request, channel: TextChannel,
         image_file = discord.File(thumb_file, "thumb.png")
         embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
+    request.on_resolved(request)
 
 
 async def send_error(channel: TextChannel, title: str,
@@ -160,6 +161,11 @@ class EllatuCommandCog(commands.Cog):
             [dc_userkey(u) for u in users]
         request = self.ellatu.run(userkeys)
         await send_response(request, ctx.channel, title="Run")
+
+    @commands.command()
+    async def map(self, ctx) -> None:
+        request = self.ellatu.draw_map(dc_userkey(ctx.message.author))
+        await send_response(request, ctx.channel, title="Map")
 
 #   @commands.Cog.listener()
 #   async def on_command_error(self, ctx, error):
