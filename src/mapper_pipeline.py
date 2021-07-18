@@ -1,7 +1,7 @@
 from inspect import Traceback
 from typing import List
 from ellatu import Request, data_action, limit_codeblocks, limit_columns, \
-                  limit_lines, terminate_request, trace, sequence, \
+                  limit_lines, terminate_request, trace, pipeline_sequence, \
                   RequestAction, EllatuPipeline, MessageType, ParagraphMessage
 import mapper
 
@@ -51,7 +51,7 @@ class MapperPipeline(EllatuPipeline):
         self.parser = mapper.mapper_parser()
 
     def on_submit(self) -> RequestAction:
-        return sequence([
+        return pipeline_sequence([
             limit_codeblocks(3),
             limit_lines(10),
             limit_columns(79),
@@ -59,7 +59,7 @@ class MapperPipeline(EllatuPipeline):
         ])
 
     def on_run(self) -> RequestAction:
-        return sequence([
+        return pipeline_sequence([
             self.on_submit(),
             run_models
         ])
