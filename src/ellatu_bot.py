@@ -88,7 +88,7 @@ async def send_response(request: Request, channel: TextChannel,
         image_file = discord.File(thumb_file, "thumb.png")
         embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
-    request.on_resolved(request)
+    request.on_resolved()
 
 
 async def send_error(channel: TextChannel, title: str,

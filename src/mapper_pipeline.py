@@ -1,8 +1,8 @@
 from inspect import Traceback
 from typing import List
 from ellatu import MessageSegment, Request, add_msg, data_action, limit_codeblocks, limit_columns, \
-                  limit_lines, terminate_request, trace, pipeline_sequence, \
-                  RequestAction, EllatuPipeline, MessageType, ParagraphMessage
+    limit_lines, remove_files, terminate_request, trace, pipeline_sequence, \
+    RequestAction, EllatuPipeline, MessageType, ParagraphMessage
 import mapper
 
 PARSER = mapper.mapper_parser()
@@ -39,9 +39,15 @@ def run_models(request: Request, models: List[mapper.Model]) -> Request:
         desired_map = mapper.fill_from_text(mapper.Map(), test, ';')
         diff_map = mapper.mapp_diff(mapp, desired_map)
         if diff_map is not None:
-            mapper.render_map("temp.png", diff_map, ship)
-            request.add_message(ParagraphMessage("here is the diff ![diff][temp.png]", message_type= MessageType.ERROR))
+            filename = request.ellatu.temp_files.add_temp_filename(
+                str(request.id) + '-mapperdiff.png'
+            )
+            mapper.render_map(filename, diff_map, ship)
+            request.add_message(
+                ParagraphMessage(f"here is the diff ![diff][{filename}]",
+                                 message_type=MessageType.ERROR))
             request.alive = False
+            request.add_on_res(remove_files([filename]))
             return request
 
     return trace(request, "Passed all tests")
