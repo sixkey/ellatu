@@ -1,6 +1,7 @@
 from collections import deque
 import os
 import re
+import image_editing as imge
 from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
 from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
@@ -449,6 +450,10 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestActi
                 dot.add_edge(level_code_parts(level['worldcode'], prereq), code)
         dot.layout(prog='dot')
         dot.draw(filename)
+        imge.edit_image(filename, imge.edit_sequence([
+            imge.expand_to_aspect(1),
+            imge.expand(total=20)
+        ]))
         return request
     return action
 
