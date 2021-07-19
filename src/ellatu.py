@@ -1,11 +1,13 @@
 from collections import deque
 import os
 import re
+
 import image_editing as imge
 from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
 from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
 from datetime import datetime, timedelta
+from random import randint
 import pygraphviz
 
 ###############################################################################
@@ -111,6 +113,9 @@ class Request:
 
     def __init__(self, ellatu: "Ellatu",
                  codeblocks: Optional[Dict[MongoId, List[str]]] = None):
+
+        self.id = ellatu.get_req_id()
+
         self.ellatu = ellatu
         self.alive = True
 
@@ -126,7 +131,13 @@ class Request:
 
         self.data: Dict[str, Any] = {}
 
-        self.on_resolved: 'RequestAction' = const_action
+        self._on_resolved_actions: List['RequestAction'] = []
+
+    def add_on_res(self, action: 'RequestAction') -> None:
+        self._on_resolved_actions.append(action)
+
+    def on_resolved(self) -> 'Request':
+        return pipeline_sequence(self._on_resolved_actions)(self)
 
     def add_message(self, message: Message) -> None:
         self.messages.append(message)
@@ -693,8 +704,12 @@ class Ellatu:
     def draw_map(self, userkey: UserKey) -> Request:
 
         # TODO: temp solution
-        filename = self.temp_files.add_temp_filename(userkey[1]) + '.png'
 
+        request = Request(self)
+
+        filename = self.temp_files.add_temp_filename(
+            str(request.id) + '-map.png'
+        )
         request = pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
@@ -703,12 +718,12 @@ class Ellatu:
             draw_levels(filename, userkey=userkey),
             print_world_info_user(userkey),
             add_msg(ImageMessage('map', filename))
-        ])(Request(self))
-        request.on_resolved = pipeline_sequence([
-            remove_files([filename])
-        ])
-
+        ])(request)
+        request.add_on_res(remove_files([filename]))
         return request
+
+    def get_req_id(self) -> int:
+        return randint(0, 1000000000000)
 
 
 
