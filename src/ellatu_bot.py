@@ -1,7 +1,7 @@
 import re
 from typing import List, Optional, Tuple
 from ellatu_db import UserKey
-from ellatu import Ellatu, Request, TextMessage, MessageSegment, \
+from ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
     ParagraphMessage
 import discord
 from discord.channel import TextChannel
@@ -76,6 +76,8 @@ async def send_response(request: Request, channel: TextChannel,
         elif isinstance(message, MessageSegment):
             flush_blocks(embed, name, text_blocks)
             name = message.title
+        elif isinstance(message, ImageMessage):
+            images.append((message.alt_text, message.location))
         else:
             text_blocks.append(str(message))
     flush_blocks(embed, name, text_blocks)

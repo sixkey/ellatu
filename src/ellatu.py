@@ -1,6 +1,5 @@
 from collections import deque
 import os
-from pprint import pprint
 import re
 from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
 from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
@@ -90,6 +89,16 @@ class ParagraphMessage(Message):
 
     def __str__(self) -> str:
         return self.prefix(self.message)
+
+class ImageMessage(Message):
+    def __init__(self, alt_text: str, location: str,
+                 message_type: MessageType = MessageType.LOG) -> None:
+        super().__init__(message_type)
+        self.alt_text = alt_text
+        self.location = location
+
+    def __str__(self) -> str:
+        return self.prefix(f"Image [{self.location}][{self.alt_text}]")
 
 
 ###############################################################################
@@ -406,22 +415,36 @@ def print_levels() -> RequestAction:
             elif locked:
                 title_wrapper = ('|| Locked: ', '||')
             res += title_wrapper[0] + title_str + title_wrapper[1]
-            pprint(level)
             if level['prereqs']:
                 res += f" needs {','.join(['_' + s + '_' for s in level['prereqs']])}"
             res += '\n'
         return trace(request, res)
     return action
 
-def draw_levels(filename: str) -> RequestAction:
+def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestAction:
     @data_action(["beaten"])
     def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         dot = pygraphviz.AGraph(strict=False, directed=True)
+        dot.node_attr["shape"] = "rect"
+        dot.node_attr["style"] = "filled"
+        target: Optional[Tuple[str, str]] = None
+
+        if userkey is not None:
+            if userkey not in request.users:
+                return terminate_request(request, "User not loaded")
+            user = request.users[userkey]
+            target = (user['worldcode'], user['levelcode'])
+
         for _ , level in request.levels.items():
-            locked = is_locked(beaten, level)
-            done = is_beaten(beaten, level)
+            fillcolor = "white"
+            if is_beaten(beaten, level):
+                fillcolor = "#56de3e"
+            if is_locked(beaten, level):
+                fillcolor = "#d63c31"
+            if target and target == (level['worldcode'], level['code']):
+                fillcolor = "#5c70d6"
             code = level_code_doc(level)
-            dot.add_node(code)
+            dot.add_node(code, fillcolor=fillcolor)
             for prereq in level['prereqs']:
                 dot.add_edge(level_code_parts(level['worldcode'], prereq), code)
         dot.layout(prog='dot')
@@ -442,14 +465,34 @@ def print_level_info(desc: bool = True) -> RequestAction:
         return request
     return action
 
+def format_world_title(world: Document) -> str:
+    return f"**{world['title']}** [_{world['code']}_]\n"
 
 def print_worlds() -> RequestAction:
     def action(request: Request) -> Request:
         worlds = request.ellatu.db.world.get()
         res = ""
         for world in worlds:
-            res += f"**{world['title']}** [_{world['code']}_]\n"
+            res += format_world_title(world)
         return trace(request, res)
+    return action
+
+def print_world_info(worldcode: str) -> RequestAction:
+    def action(request: Request) -> Request:
+        world = request.ellatu.db.world.get_one(code=worldcode)
+        if world is None:
+            return terminate_request(request, "World not found")
+        return trace(request, format_world_title(world))
+    return action
+
+def print_world_info_user(userkey: UserKey) -> RequestAction:
+    def action(request: Request) -> Request:
+        if userkey not in request.users:
+            return terminate_request(request, "User not in request")
+        user = request.users[userkey]
+        if not user['worldcode']:
+            return terminate_request(request, "User not in world")
+        return print_world_info(user['worldcode'])(request)
     return action
 
 # Permission actions ##########################################################
@@ -541,7 +584,6 @@ def load_beaten_by_user(userkey: UserKey) -> RequestAction:
             return terminate_request(request, "User not found")
         solutions = request.ellatu.db.solution.get_solutions(user["_id"])
         beaten = set([(s['worldcode'], s['levelcode']) for s in solutions])
-        print(beaten)
         request.data["beaten"] = beaten
         return request
     return action
@@ -649,11 +691,13 @@ class Ellatu:
         filename = self.temp_files.add_temp_filename(userkey[1]) + '.png'
 
         request = pipeline_sequence([
+            add_users([userkey]),
             localize_by_user(userkey),
             add_local_levels(),
             load_beaten_by_user(userkey),
-            draw_levels(filename),
-            add_msg(ParagraphMessage(f"![map][{filename}]"))
+            draw_levels(filename, userkey=userkey),
+            print_world_info_user(userkey),
+            add_msg(ImageMessage('map', filename))
         ])(Request(self))
         request.on_resolved = pipeline_sequence([
             remove_files([filename])
