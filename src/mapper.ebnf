@@ -113,7 +113,7 @@ expression
 
 neg::Neg 
     = 
-    '!' ~ val:logic 
+    op:'!' ~ val:logic 
     ; 
 
 logic 
@@ -141,12 +141,18 @@ eq_op::Operation
 compare 
     =
     | comp_op
+    | tneg 
     | term
     ; 
 
 comp_op::Operation
     = 
     left:term op:('<=' | '<' | '>=' | '>') right:term
+    ; 
+
+tneg::Neg
+    = 
+    op:'-' ~ val:term
     ; 
 
 term 

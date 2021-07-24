@@ -48,14 +48,15 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
         world_doc = JSONEditor(world).select(
             ['title', 'code', 'tags', 'prereqs']).mat()
         ellatudb.world.d_update(['code'], world_doc)
-        for level in world['levels']:
-            level_doc = JSONEditor(level).select(
-                ['title', 'desc', 'code', 'tags', 'prereqs', 'tests', 'pipeline']
-            ).inject(
-                {'worldcode': world['code']}
-            ).mat()
-            ellatudb.level.d_update(['code', 'worldcode'], level_doc)
-
+        for levelcode in world['levels']:
+            with open(os.path.join('mapper', f"{levelcode}.json"), 'r') as lvl:
+                level = json.load(lvl)
+                level_doc = JSONEditor(level).select(
+                    ['title', 'desc', 'code', 'tags', 'prereqs', 'tests', 'pipeline']
+                ).inject(
+                    {'worldcode': world['code']}
+                ).mat()
+                ellatudb.level.d_update(['code', 'worldcode'], level_doc)
 
 if __name__ == "__main__":
 
@@ -75,7 +76,9 @@ if __name__ == "__main__":
 
     ellatudb = EllatuDB("localhost", 27017)
 
-    loadworld(ellatudb, 'mapper.json')
+
+
+    loadworld(ellatudb, 'mapper/mapper.json')
 
     ellatu = Ellatu(ellatudb)
 
