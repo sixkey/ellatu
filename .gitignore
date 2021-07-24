@@ -1,0 +1,11 @@
+*
+
+!src
+
+!setup.cnf
+!pyproject.toml
+
+!.gitignore
+
+!*.py
+!*.ebnf
