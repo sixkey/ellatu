@@ -18,7 +18,7 @@ def dc_userkey(user: discord.User) -> UserKey:
 
 def extract_code_blocks(message: str) -> List[str]:
     result: List[str] = []
-    for group in re.findall(r'```([^`]*)```', message):
+    for group in re.findall(r'```[^\n]*([^`]*)```', message):
         result.append(group)
     return result
 
