@@ -433,7 +433,8 @@ def print_levels() -> RequestAction:
         return trace(request, res)
     return action
 
-def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestAction:
+def draw_levels(filename: str, userkey: Optional[UserKey] = None,
+                include_worldcode: bool = True) -> RequestAction:
     @data_action(["beaten"])
     def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         dot = pygraphviz.AGraph(strict=False, directed=True)
@@ -456,7 +457,8 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestActi
             if target and target == (level['worldcode'], level['code']):
                 fillcolor = "#5c70d6"
             code = level_code_doc(level)
-            dot.add_node(code, fillcolor=fillcolor)
+            label = code if include_worldcode else level['code']
+            dot.add_node(code,  fillcolor=fillcolor, label=label)
             for prereq in level['prereqs']:
                 dot.add_edge(level_code_parts(level['worldcode'], prereq), code)
         dot.layout(prog='dot')
@@ -715,7 +717,7 @@ class Ellatu:
             localize_by_user(userkey),
             add_local_levels(),
             load_beaten_by_user(userkey),
-            draw_levels(filename, userkey=userkey),
+            draw_levels(filename, userkey=userkey, include_worldcode=False),
             print_world_info_user(userkey),
             add_msg(ImageMessage('map', filename))
         ])(request)
