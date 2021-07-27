@@ -132,7 +132,7 @@ class EllatuCommandCog(commands.Cog):
         await ctx.send(f'Hello {ctx.author.name}')
 
     @commands.command()
-    async def levels(self, ctx, worldcode: str) -> None:
+    async def levels(self, ctx, worldcode: Optional[str] = None) -> None:
         request = self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
         await send_response(request, ctx.channel, title="Levels")
 

@@ -685,22 +685,18 @@ class Ellatu:
             print_worlds()
         ])(request)
 
-    def get_levels(self, userkey: UserKey, worldcode: str) -> Request:
+    def get_levels(self, userkey: UserKey,
+                   worldcode: Optional[str] = None) -> Request:
         request = Request(self)
         return pipeline_sequence([
-            add_levels_worldcode(worldcode),
+            pipeline_sequence(
+                [localize_by_user(userkey), add_local_levels()]
+            ) if worldcode is None else add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
             add_msg(MessageSegment('Available levels in _mapper_')),
             print_levels()
         ])(request)
 
-    def sign_for_user(self, userkey: UserKey) -> Request:
-        request = Request(self)
-        return pipeline_sequence([
-            localize_by_user(userkey),
-            permission_check(),
-            print_level_info()
-        ])(request)
 
     def draw_map(self, userkey: UserKey, worldcode: Optional[str] = None) -> Request:
 
@@ -725,6 +721,14 @@ class Ellatu:
         ])(request)
         request.add_on_res(remove_files([filename]))
         return request
+
+    def sign_for_user(self, userkey: UserKey) -> Request:
+        request = Request(self)
+        return pipeline_sequence([
+            localize_by_user(userkey),
+            permission_check(),
+            print_level_info()
+        ])(request)
 
     def get_req_id(self) -> int:
         return randint(0, 1000000000000)
