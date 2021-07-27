@@ -165,8 +165,8 @@ class EllatuCommandCog(commands.Cog):
         await send_response(request, ctx.channel, title="Run")
 
     @commands.command()
-    async def map(self, ctx) -> None:
-        request = self.ellatu.draw_map(dc_userkey(ctx.message.author))
+    async def map(self, ctx, worldcode = None) -> None:
+        request = self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
         await send_response(request, ctx.channel, title="Map")
 
 #   @commands.Cog.listener()

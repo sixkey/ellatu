@@ -233,7 +233,6 @@ def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
         return tree[request.level['pipeline']](request)
     return action
 
-
 # File in action ##############################################################
 
 def remove_files(filenames: List[str]) -> RequestAction:
@@ -703,7 +702,7 @@ class Ellatu:
             print_level_info()
         ])(request)
 
-    def draw_map(self, userkey: UserKey) -> Request:
+    def draw_map(self, userkey: UserKey, worldcode: Optional[str] = None) -> Request:
 
         # TODO: temp solution
 
@@ -714,8 +713,11 @@ class Ellatu:
         )
         request = pipeline_sequence([
             add_users([userkey]),
-            localize_by_user(userkey),
-            add_local_levels(),
+
+            pipeline_sequence(
+                [localize_by_user(userkey), add_local_levels()]
+            ) if worldcode is None else add_levels_worldcode(worldcode),
+
             load_beaten_by_user(userkey),
             draw_levels(filename, userkey=userkey, include_worldcode=False),
             print_world_info_user(userkey),
