@@ -367,24 +367,46 @@ def limit_columns(number: int) -> RequestAction:
 # Localize actions ############################################################
 
 
+def parse_level_code(code: str) -> Tuple[Optional[str], str]:
+    match = re.match(r'^(\w+)\-(\w+)$', code)
+    if match:
+        return match.group(1), match.group(2)
+    return None, code
+
+
 def localize_by_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
         user = request.ellatu.db.user.get_user(userkey)
         if user is None:
             return terminate_request(request, "The user was not found")
-        request.level = request.ellatu.db.level.get_by_code(user["levelcode"])
+        worldcode = user['worldcode']
+        levelcode = user['levelcode']
+        if worldcode is None or levelcode is None:
+            return terminate_request(request, "The user is in no level")
+        request.level = request.ellatu.db.level.get_by_code(worldcode,
+                                                            levelcode)
         return request
     return action
 
 
-def localize_by_code(code: str) -> RequestAction:
+def localize_by_code(worldcode: Optional[str], levelcode: Optional[str], userkey: Optional[UserKey] = None) -> RequestAction:
     def action(request: Request) -> Request:
-        match = re.match(r'^(\w+)\-(\w+)$', code)
-        if match is None:
-            return terminate_request(request, "Invalid level code format")
-        worldcode, levelcode = match.group(1), match.group(2)
+        w_code = worldcode
+        l_code = levelcode
+        if w_code is None or l_code is None:
+            if userkey is None:
+                return terminate_request(request, "Part of code missing but no user")
+            user = request.ellatu.db.user.get_user(userkey)
+            if user is None:
+                return terminate_request(request, "Part of code missing but user not found")
+            if user['worldcode'] is None or user['levelcode'] is None:
+                return terminate_request(request, "The user is in no level")
+            if w_code is None:
+                w_code = user['worldcode']
+            if l_code is None:
+                l_code = user['levelcode']
         level = request.ellatu.db.level.get_one(
-            worldcode=worldcode, code=levelcode)
+            worldcode=w_code, code=l_code)
         if not level:
             return terminate_request(request, "Invalid level code")
         request.level = level
@@ -638,11 +660,12 @@ class Ellatu:
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
 
 
-    def user_move(self, userkey: UserKey, levelcode: str) -> Request:
+    def user_move(self, userkey: UserKey, code: str) -> Request:
         request = Request(self)
+        worldcode, levelcode = parse_level_code(code)
         return pipeline_sequence([
             add_users([userkey]),
-            localize_by_code(levelcode),
+            localize_by_code(worldcode, levelcode, userkey),
             permission_check(),
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
