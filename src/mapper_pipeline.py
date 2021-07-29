@@ -37,7 +37,7 @@ def run_models(request: Request, models: List[mapper.Model]) -> Request:
     for test in request.level['tests']:
         print(test)
         desired_map = mapper.fill_from_text(mapper.Map(), test, ';')
-        diff_map = mapper.mapp_diff(mapp, desired_map)
+        diff_map = mapper.mapp_diff(desired_map, mapp)
         if diff_map is not None:
             filename = request.ellatu.temp_files.add_temp_filename(
                 str(request.id) + '-mapperdiff.png'

@@ -8,6 +8,7 @@ import tatsu
 from tatsu.walkers import NodeWalker
 import json
 import sys
+import os
 
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
@@ -584,7 +585,11 @@ class MapperWalker(NodeWalker):
         return value
 
     def walk__neg(self, node):
-        return int(not self.walk(node.val))
+        if node.op == '!':
+            return int(not self.walk(node.val))
+        elif node.op == '-':
+            return - self.walk(node.val)
+        raise SyntaxError(f"Invalid negation operator")
 
     def walk__range(self, node):
         start = self.walk(node.start)
@@ -710,20 +715,62 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
 
     return result, mapper_map, ship
 
-def generate_level(name: str):
-    with open(f"{name}.mpp") as f:
+def generate_level(folder: str, src: str, name: str):
+
+    src = os.path.join(folder, src)
+    org_name = name
+    name = os.path.join(folder, name)
+
+    with open(f"{src}.mpp") as f:
         code = f.read()
+
+    if name != src:
+        with open(f"{name}.mpp", 'w') as f:
+            f.write(code)
 
     models = [compile_code(code)]
     _ , mapp, ship = run_models(models)
 
+    tiles = export_map(mapp, sep=';')
     with open(f"{name}.txt", "w") as f:
-        f.write(export_map(mapp, sep=';'))
+        f.write(tiles)
 
     start_ship = Ship(mapp)
     render_map(f"{name}.png", mapp, start_ship)
+    render_map(f"{name}-res.png", mapp, ship)
+    save_json(name, org_name, tiles)
+
+def save_json(path_name: str, org_name: str, test: str):
+
+    filepath = f"{path_name}.json"
+    if os.path.isfile(filepath):
+        if False and input('override y/N') != 'y':
+            return
+
+    prereqs = []
+    desc = f'![{org_name}][{path_name}.png]'
+
+    md_file = f"{path_name}.md"
+    if os.path.isfile(md_file):
+        with open(md_file) as f:
+            header = f.readline()
+            prereqs = header[1:].split()
+            desc = f.read() + desc
+
+    json_str = json.dumps({
+        'code': org_name,
+        'title': org_name,
+        'desc': desc,
+        'pipeline': 'mapper',
+        'tests': [test],
+        'prereqs': prereqs
+    }, indent=4)
+
+    with open(filepath, "w") as f:
+        f.write(json_str)
 
 if __name__ == "__main__":
-    generate_level(sys.argv[1])
+    name = sys.argv[1] if len(sys.argv) < 3 else sys.argv[2]
+    generate_level('mapper', sys.argv[1], name)
 
 

@@ -233,7 +233,6 @@ def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
         return tree[request.level['pipeline']](request)
     return action
 
-
 # File in action ##############################################################
 
 def remove_files(filenames: List[str]) -> RequestAction:
@@ -368,24 +367,46 @@ def limit_columns(number: int) -> RequestAction:
 # Localize actions ############################################################
 
 
+def parse_level_code(code: str) -> Tuple[Optional[str], str]:
+    match = re.match(r'^(\w+)\-(\w+)$', code)
+    if match:
+        return match.group(1), match.group(2)
+    return None, code
+
+
 def localize_by_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
         user = request.ellatu.db.user.get_user(userkey)
         if user is None:
             return terminate_request(request, "The user was not found")
-        request.level = request.ellatu.db.level.get_by_code(user["levelcode"])
+        worldcode = user['worldcode']
+        levelcode = user['levelcode']
+        if worldcode is None or levelcode is None:
+            return terminate_request(request, "The user is in no level")
+        request.level = request.ellatu.db.level.get_by_code(worldcode,
+                                                            levelcode)
         return request
     return action
 
 
-def localize_by_code(code: str) -> RequestAction:
+def localize_by_code(worldcode: Optional[str], levelcode: Optional[str], userkey: Optional[UserKey] = None) -> RequestAction:
     def action(request: Request) -> Request:
-        match = re.match(r'^(\w+)\-(\w+)$', code)
-        if match is None:
-            return terminate_request(request, "Invalid level code format")
-        worldcode, levelcode = match.group(1), match.group(2)
+        w_code = worldcode
+        l_code = levelcode
+        if w_code is None or l_code is None:
+            if userkey is None:
+                return terminate_request(request, "Part of code missing but no user")
+            user = request.ellatu.db.user.get_user(userkey)
+            if user is None:
+                return terminate_request(request, "Part of code missing but user not found")
+            if user['worldcode'] is None or user['levelcode'] is None:
+                return terminate_request(request, "The user is in no level")
+            if w_code is None:
+                w_code = user['worldcode']
+            if l_code is None:
+                l_code = user['levelcode']
         level = request.ellatu.db.level.get_one(
-            worldcode=worldcode, code=levelcode)
+            worldcode=w_code, code=l_code)
         if not level:
             return terminate_request(request, "Invalid level code")
         request.level = level
@@ -433,7 +454,8 @@ def print_levels() -> RequestAction:
         return trace(request, res)
     return action
 
-def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestAction:
+def draw_levels(filename: str, userkey: Optional[UserKey] = None,
+                include_worldcode: bool = True) -> RequestAction:
     @data_action(["beaten"])
     def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         dot = pygraphviz.AGraph(strict=False, directed=True)
@@ -456,7 +478,8 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None) -> RequestActi
             if target and target == (level['worldcode'], level['code']):
                 fillcolor = "#5c70d6"
             code = level_code_doc(level)
-            dot.add_node(code, fillcolor=fillcolor)
+            label = code if include_worldcode else level['code']
+            dot.add_node(code,  fillcolor=fillcolor, label=label)
             for prereq in level['prereqs']:
                 dot.add_edge(level_code_parts(level['worldcode'], prereq), code)
         dot.layout(prog='dot')
@@ -499,6 +522,13 @@ def print_world_info(worldcode: str) -> RequestAction:
         if world is None:
             return terminate_request(request, "World not found")
         return trace(request, format_world_title(world))
+    return action
+
+def print_world_info_local() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "Level not set")
+        return print_world_info(request.level['worldcode'])(request)
     return action
 
 def print_world_info_user(userkey: UserKey) -> RequestAction:
@@ -637,11 +667,12 @@ class Ellatu:
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
 
 
-    def user_move(self, userkey: UserKey, levelcode: str) -> Request:
+    def user_move(self, userkey: UserKey, code: str) -> Request:
         request = Request(self)
+        worldcode, levelcode = parse_level_code(code)
         return pipeline_sequence([
             add_users([userkey]),
-            localize_by_code(levelcode),
+            localize_by_code(worldcode, levelcode, userkey),
             permission_check(),
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
@@ -684,24 +715,20 @@ class Ellatu:
             print_worlds()
         ])(request)
 
-    def get_levels(self, userkey: UserKey, worldcode: str) -> Request:
+    def get_levels(self, userkey: UserKey,
+                   worldcode: Optional[str] = None) -> Request:
         request = Request(self)
         return pipeline_sequence([
-            add_levels_worldcode(worldcode),
+            pipeline_sequence(
+                [localize_by_user(userkey), add_local_levels()]
+            ) if worldcode is None else add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
             add_msg(MessageSegment('Available levels in _mapper_')),
             print_levels()
         ])(request)
 
-    def sign_for_user(self, userkey: UserKey) -> Request:
-        request = Request(self)
-        return pipeline_sequence([
-            localize_by_user(userkey),
-            permission_check(),
-            print_level_info()
-        ])(request)
 
-    def draw_map(self, userkey: UserKey) -> Request:
+    def draw_map(self, userkey: UserKey, worldcode: Optional[str] = None) -> Request:
 
         # TODO: temp solution
 
@@ -712,15 +739,24 @@ class Ellatu:
         )
         request = pipeline_sequence([
             add_users([userkey]),
-            localize_by_user(userkey),
-            add_local_levels(),
+            pipeline_sequence(
+                [localize_by_user(userkey), add_local_levels()]
+            ) if worldcode is None else add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
-            draw_levels(filename, userkey=userkey),
-            print_world_info_user(userkey),
+            draw_levels(filename, userkey=userkey, include_worldcode=False),
+            print_world_info_user(userkey) if worldcode is None else print_world_info(worldcode),
             add_msg(ImageMessage('map', filename))
         ])(request)
         request.add_on_res(remove_files([filename]))
         return request
+
+    def sign_for_user(self, userkey: UserKey) -> Request:
+        request = Request(self)
+        return pipeline_sequence([
+            localize_by_user(userkey),
+            permission_check(),
+            print_level_info()
+        ])(request)
 
     def get_req_id(self) -> int:
         return randint(0, 1000000000000)

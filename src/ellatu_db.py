@@ -419,8 +419,8 @@ class Level(Model):
             "tests": []
         }
 
-    def get_by_code(self, code: str) -> Optional[Document]:
-        return self.get_one(code=code)
+    def get_by_code(self, worldcode: str, levelcode: str) -> Optional[Document]:
+        return self.get_one(worldcode=worldcode, code=levelcode)
 
 
 class Workplace(Model):
