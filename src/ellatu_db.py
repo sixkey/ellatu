@@ -26,6 +26,10 @@ MongoId = str
 ClientService = str
 ClientId = str
 UserKey = Tuple[ClientService, ClientId]
+Worldcode = str
+Levelcode = str
+LevelKey = Tuple[Worldcode, Levelcode]
+
 
 ###############################################################################
 # Misc
@@ -41,6 +45,9 @@ def int_in_range(value: int, min_value: Optional[int],
 
 def get_userkey(doc: Document) -> UserKey:
     return (doc["client_ser"], doc['client_id'])
+
+def get_levelkey(level: Document) -> LevelKey:
+    return (level["worldcode"], level["code"])
 
 
 ###############################################################################
