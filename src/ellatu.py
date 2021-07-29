@@ -331,23 +331,40 @@ def print_codeblocks() -> RequestAction:
     return action
 
 
-def limit_codeblocks(number: int) -> RequestAction:
+def limit_users(number: Optional[int]) -> RequestAction:
     def action(request: Request) -> Request:
+        if number is None:
+            return request
+        if len(request.codeblocks.keys()) > number:
+            return terminate_request(
+                request,
+                f"There were more than {number} users")
+        return request
+    return action
+
+
+def limit_codeblocks(number: Optional[int]) -> RequestAction:
+    def action(request: Request) -> Request:
+        if number is None:
+            return request
         for _, codeblocks in request.codeblocks.items():
             if len(codeblocks) > number:
                 return terminate_request(
                     request,
-                    f"There were more then {number} lines"
+                    f"There were more then {number} codeblocks"
                 )
         return request
     return action
 
 
-def limit_lines(number: int) -> RequestAction:
+def limit_lines(number: Optional[int]) -> RequestAction:
     def action(request: Request) -> Request:
+        if number is None:
+            return request
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
-                if len(codeblock.splitlines()) > number:
+                if len(list(filter(lambda x: x.strip() != '', 
+                                   codeblock.splitlines()))) > number:
                     return terminate_request(
                         request,
                         f"A codeblock was longer than {number} lines"
@@ -356,12 +373,14 @@ def limit_lines(number: int) -> RequestAction:
     return action
 
 
-def limit_columns(number: int) -> RequestAction:
+def limit_columns(number: Optional[int]) -> RequestAction:
     def action(request: Request) -> Request:
+        if number is None:
+            return request
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
                 for line in codeblock.splitlines():
-                    if len(line) > number:
+                    if len(line.rstrip()) > number:
                         return terminate_request(
                             request,
                             f"Line was longer than {number} characters"
@@ -501,14 +520,21 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
     return action
 
 
-def print_level_info(desc: bool = True) -> RequestAction:
+def print_level_info(
+        header: Callable[[Document], Optional[str]] = lambda _: None,
+        desc: bool = True) -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
             return trace(request, "No level selected")
         text = f"**{request.level['title']}** " + \
             f"[_{level_code_doc(request.level)}_]"
+
+        header_text = header(request.level) 
+        if header_text: 
+            text += '\n' + header_text
         if desc:
             text += '\n' + request.level['desc']
+
         request.add_message(ParagraphMessage(text))
         return request
     return action
@@ -678,6 +704,7 @@ class Ellatu:
     def __init__(self, ellatu_db: EllatuDB, temp_folder: str = 'ellatu_temp'):
         self.on_submit_workflow: RequestAction = const_action
         self.on_run_workflow: RequestAction = const_action
+        self.header: Callable[[Document], Optional[str]] = lambda x: None
         self.db = ellatu_db
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
 
@@ -690,7 +717,7 @@ class Ellatu:
             permission_check(),
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
-            print_level_info()
+            print_level_info(header=self.header)
         ])(request)
 
     def submit(self, userkey: UserKey, codeblocks: List[str]) -> Request:
@@ -703,7 +730,7 @@ class Ellatu:
             self.on_submit_workflow,
             save_submit(),
             add_msg(MessageSegment("The codeblocks was added to:")),
-            print_level_info(desc=False)
+            print_level_info(header=self.header, desc=False)
         ])(request)
 
     def run(self, userkeys: List[UserKey]) -> Request:
@@ -770,7 +797,7 @@ class Ellatu:
             add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
-            print_level_info()
+            print_level_info(header=self.header)
         ])(request)
 
     def get_req_id(self) -> int:

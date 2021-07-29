@@ -1,12 +1,20 @@
+from ellatu_db import Document
 from inspect import Traceback
-from typing import List
+from typing import Dict, List, Optional
 from ellatu import MessageSegment, Request, add_msg, data_action, limit_codeblocks, limit_columns, \
-    limit_lines, remove_files, terminate_request, trace, pipeline_sequence, \
+    limit_lines, limit_users, remove_files, terminate_request, trace, pipeline_sequence, \
     RequestAction, EllatuPipeline, MessageType, ParagraphMessage
 import mapper
 
 PARSER = mapper.mapper_parser()
 
+
+DEFAULT_SETTINGS: Dict[str, Optional[int]] = {
+    "users": None,
+    "blocks": 3,
+    "lines": 10,
+    "cols": 79
+}
 
 def compile_codeblocks(parser) -> RequestAction:
     def action(request: Request) -> Request:
@@ -52,6 +60,24 @@ def run_models(request: Request, models: List[mapper.Model]) -> Request:
 
     return trace(request, "Passed all tests")
 
+def get_level_settings(level: Document) -> Dict[str, Optional[int]]:
+    settings = dict(DEFAULT_SETTINGS)
+    for key, value in level["attrs"].items():
+        settings[key] = value
+    return settings
+
+
+def check_blocks(request: Request) -> Request:
+    if request.level is None:
+        return terminate_request(request, "The level is not set")
+
+    settings = get_level_settings(request.level)
+    return pipeline_sequence([
+        limit_users(settings["users"]),
+        limit_codeblocks(settings["blocks"]),
+        limit_lines(settings["lines"]),
+        limit_columns(settings["cols"])
+    ])(request)
 
 class MapperPipeline(EllatuPipeline):
 
@@ -60,9 +86,7 @@ class MapperPipeline(EllatuPipeline):
 
     def on_submit(self) -> RequestAction:
         return pipeline_sequence([
-            limit_codeblocks(3),
-            limit_lines(10),
-            limit_columns(79),
+            check_blocks,
             add_msg(MessageSegment('Compilation')),
             compile_codeblocks(self.parser)
         ])
