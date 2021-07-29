@@ -524,6 +524,13 @@ def print_world_info(worldcode: str) -> RequestAction:
         return trace(request, format_world_title(world))
     return action
 
+def print_world_info_local() -> RequestAction:
+    def action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "Level not set")
+        return print_world_info(request.level['worldcode'])(request)
+    return action
+
 def print_world_info_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
         if userkey not in request.users:
@@ -732,14 +739,12 @@ class Ellatu:
         )
         request = pipeline_sequence([
             add_users([userkey]),
-
             pipeline_sequence(
                 [localize_by_user(userkey), add_local_levels()]
             ) if worldcode is None else add_levels_worldcode(worldcode),
-
             load_beaten_by_user(userkey),
             draw_levels(filename, userkey=userkey, include_worldcode=False),
-            print_world_info_user(userkey),
+            print_world_info_user(userkey) if worldcode is None else print_world_info(worldcode),
             add_msg(ImageMessage('map', filename))
         ])(request)
         request.add_on_res(remove_files([filename]))
