@@ -1,0 +1,25 @@
+[tool.pyright]
+include = ["scr"]
+executionEnvironments = [
+  { root = "src" }
+]
+
+[mypy-discord.*]
+ignore_missing_imports = True
+[mypy-tatsu.*]
+ignore_missing_imports = True
+[mypy-pymongo.*]
+ignore_missing_imports = True
+[mypy-PIL.*]
+ignore_missing_imports = True
+
+[build-system]
+requires = [
+    "setuptools>=42",
+    "discord", 
+    "Pillow", 
+    "tatsu",
+    "numpy", 
+    "wheel" 
+]
+build-backend = "setuptools.build_meta"

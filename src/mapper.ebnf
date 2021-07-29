@@ -1,0 +1,216 @@
+@@grammar::Mapper 
+@@whitespace :: /[\t ]+/
+  
+document
+    = 
+    decls:{decl} $
+    ; 
+
+decl
+    =
+    | function
+    | newline 
+    ;
+
+function::Function
+    = 
+    'fun' ~ name:name '(' params:','.{name} ')' ':' newline body:codeblock
+    ; 
+
+add_param
+    =
+    ',' ~ @:name
+    ; 
+
+amn_function::AmnFunction
+    =
+    fun:function
+    ; 
+
+codeblock::Codeblock
+    =
+    '{' newline  lines:{stmt_line}+ '}' newline 
+    ; 
+
+stmt_line
+    = 
+    | @:if_stmt
+    | @:while_stmt
+    | @:for_stmt
+    | @:stmt newline  
+    | @:amn_function 
+    ; 
+
+if_stmt::IfStatement
+    =
+    'if' ~ cond:cond ':' newline body:codeblock 
+    elifs:{elif_stmt}
+    else_block:[else_stmt]
+    ;
+
+elif_stmt
+    = 
+    'elif' ~ cond:cond ':' newline body:codeblock 
+    ; 
+
+else_stmt
+    =
+    'else' ~ ':' newline @:codeblock
+    ;
+
+while_stmt::WhileStmt
+    =
+    'while' ~ cond:cond ':' newline body:codeblock
+    ;
+
+for_stmt::ForStmt
+    = 
+    'for' ~ var:name 'in' gen:generator ':' newline body:codeblock 
+    ; 
+
+generator
+    = 
+    @:rng_gen
+    ; 
+
+rng_gen::Range
+    =
+    '[' start:expression '..' end:expression [(',' step:expression)] ']'
+    ;  
+
+cond 
+    =
+    @:expression
+    ; 
+
+stmt 
+    = 
+    | @:lift_stmt
+    | @:amnesia_stmt
+    ;
+
+lift_stmt::Lift 
+    = 
+    lift:('return' | 'break' | 'continue' | 'throw') [value:expression]
+    ; 
+
+amnesia_stmt::AmnesiaStmt
+    = 
+    | stmt:assigment 
+    | stmt:expression 
+    ; 
+
+assigment::Assigment
+    = 
+    name:name '=' ~ value:expression
+    ; 
+
+expression
+    =
+    | neg 
+    | logic 
+    ;
+
+neg::Neg 
+    = 
+    op:'!' ~ val:logic 
+    ; 
+
+logic 
+    =
+    | log_op
+    | equality
+    ;  
+
+log_op::Operation 
+    = 
+    left:logic op:('&&' | '||' | '=>') right:equality
+    ; 
+
+equality
+    =
+    | eq_op 
+    | compare 
+    ; 
+
+eq_op::Operation
+    =
+    left:equality op:('==' | '!=') right:compare 
+    ;   
+
+compare 
+    =
+    | comp_op
+    | tneg 
+    | term
+    ; 
+
+comp_op::Operation
+    = 
+    left:term op:('<=' | '<' | '>=' | '>') right:term
+    ; 
+
+tneg::Neg
+    = 
+    op:'-' ~ val:term
+    ; 
+
+term 
+    = 
+    | term_op
+    | factor
+    ;
+
+term_op::Operation  
+    = 
+    left:term op:('+' | '-') ~ right:factor
+    ;
+
+factor
+    = 
+    | fact_op
+    | call
+    | element
+    ; 
+
+fact_op::Operation
+    =
+    left:factor op:('*' | '/' | '%') ~ right:element
+    ; 
+
+call::Call
+    = 
+    name:name '(' args:','.{expression} ')'
+    ; 
+
+element 
+    = 
+    | '(' ~ @:expression ')'
+    | @:atom
+    ; 
+
+atom 
+    =
+    | @:int 
+    | @:var 
+    ; 
+
+var::Variable
+    = 
+    name:name 
+    ;
+
+name
+    = 
+    /[a-zA-Z_][a-zA-Z_0-9]*/
+    ;
+
+int::Integer
+    = 
+    value:(/\-?[0-9]+/)
+    ;
+
+newline
+    =
+    {['\u000C'] ['\r'] '\n'}+
+    ;
