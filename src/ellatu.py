@@ -3,7 +3,7 @@ import os
 import re
 
 import image_editing as imge
-from ellatu_db import Document, EllatuDB, MongoId, UserKey, get_userkey
+from ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
 from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
 from datetime import datetime, timedelta
@@ -27,6 +27,10 @@ def level_code_parts(worldcode: str, levelcode: str) -> str:
 
 def level_code_doc(level: Document) -> str:
     return level_code_parts(level["worldcode"], level["code"])
+
+
+def level_code_key(levelkey: LevelKey) -> str:
+    return level_code_parts(levelkey[0], levelkey[1])
 
 ###############################################################################
 # Messages
@@ -93,6 +97,7 @@ class ParagraphMessage(Message):
     def __str__(self) -> str:
         return self.prefix(self.message)
 
+
 class ImageMessage(Message):
     def __init__(self, alt_text: str, location: str,
                  message_type: MessageType = MessageType.LOG) -> None:
@@ -122,7 +127,7 @@ class Request:
         self.messages: List[Message] = []
 
         self.level: Optional[Document] = None
-        self.levels: Dict[str, Document] = {}
+        self.levels: Dict[LevelKey, Document] = {}
 
         self.users: Dict[UserKey, Document] = {}
 
@@ -150,7 +155,6 @@ class Request:
 
 
 RequestAction = Callable[[Request], Request]
-
 
 
 # Message Utils ###############################################################
@@ -198,8 +202,9 @@ def kill_request(request: Request) -> Request:
 
 ExtRequestAction = Callable[..., Request]
 
+
 def data_action(keys: List[str]) \
-    -> Callable[[ExtRequestAction], RequestAction]:
+        -> Callable[[ExtRequestAction], RequestAction]:
     def wrapper(func: ExtRequestAction) -> RequestAction:
         def action(request: Request) -> Request:
             values = []
@@ -234,6 +239,7 @@ def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
     return action
 
 # File in action ##############################################################
+
 
 def remove_files(filenames: List[str]) -> RequestAction:
     def action(request: Request) -> Request:
@@ -421,9 +427,10 @@ def add_levels_worldcode(worldcode: str) -> RequestAction:
     def action(request: Request) -> Request:
         levels = request.ellatu.db.level.get(worldcode=worldcode)
         for level in levels:
-            request.levels[level_code_doc(level)] = level
+            request.levels[get_levelkey(level)] = level
         return request
     return action
+
 
 def add_local_levels() -> RequestAction:
     def action(request: Request) -> Request:
@@ -437,8 +444,8 @@ def print_levels() -> RequestAction:
     @data_action(["beaten"])
     def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
         res = ""
-        for levelcode, level in request.levels.items():
-            title_str = f"**{level['title']}** [*{levelcode}*]"
+        for _, level in request.levels.items():
+            title_str = f"**{level['title']}** [*{level_code_doc(level)}*]"
 
             locked = is_locked(beaten, level)
             done = is_beaten(beaten, level)
@@ -453,6 +460,7 @@ def print_levels() -> RequestAction:
             res += '\n'
         return trace(request, res)
     return action
+
 
 def draw_levels(filename: str, userkey: Optional[UserKey] = None,
                 include_worldcode: bool = True) -> RequestAction:
@@ -469,7 +477,7 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
             user = request.users[userkey]
             target = (user['worldcode'], user['levelcode'])
 
-        for _ , level in request.levels.items():
+        for _, level in request.levels.items():
             fillcolor = "white"
             if is_beaten(beaten, level):
                 fillcolor = "#56de3e"
@@ -481,7 +489,8 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
             label = code if include_worldcode else level['code']
             dot.add_node(code,  fillcolor=fillcolor, label=label)
             for prereq in level['prereqs']:
-                dot.add_edge(level_code_parts(level['worldcode'], prereq), code)
+                dot.add_edge(level_code_parts(
+                    level['worldcode'], prereq), code)
         dot.layout(prog='dot')
         dot.draw(filename)
         imge.edit_image(filename, imge.edit_sequence([
@@ -504,8 +513,10 @@ def print_level_info(desc: bool = True) -> RequestAction:
         return request
     return action
 
+
 def format_world_title(world: Document) -> str:
     return f"**{world['title']}** [_{world['code']}_]\n"
+
 
 def print_worlds() -> RequestAction:
     def action(request: Request) -> Request:
@@ -516,6 +527,7 @@ def print_worlds() -> RequestAction:
         return trace(request, res)
     return action
 
+
 def print_world_info(worldcode: str) -> RequestAction:
     def action(request: Request) -> Request:
         world = request.ellatu.db.world.get_one(code=worldcode)
@@ -524,12 +536,14 @@ def print_world_info(worldcode: str) -> RequestAction:
         return trace(request, format_world_title(world))
     return action
 
+
 def print_world_info_local() -> RequestAction:
     def action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request, "Level not set")
         return print_world_info(request.level['worldcode'])(request)
     return action
+
 
 def print_world_info_user(userkey: UserKey) -> RequestAction:
     def action(request: Request) -> Request:
@@ -658,14 +672,14 @@ class TempFileStorage:
             _, temp_file = self.temp_files.popleft()
             os.remove(temp_file)
 
+
 class Ellatu:
 
     def __init__(self, ellatu_db: EllatuDB, temp_folder: str = 'ellatu_temp'):
         self.on_submit_workflow: RequestAction = const_action
-        self.on_run_workflow:RequestAction = const_action
+        self.on_run_workflow: RequestAction = const_action
         self.db = ellatu_db
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
-
 
     def user_move(self, userkey: UserKey, code: str) -> Request:
         request = Request(self)
@@ -727,7 +741,6 @@ class Ellatu:
             print_levels()
         ])(request)
 
-
     def draw_map(self, userkey: UserKey, worldcode: Optional[str] = None) -> Request:
 
         # TODO: temp solution
@@ -744,7 +757,8 @@ class Ellatu:
             ) if worldcode is None else add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
             draw_levels(filename, userkey=userkey, include_worldcode=False),
-            print_world_info_user(userkey) if worldcode is None else print_world_info(worldcode),
+            print_world_info_user(
+                userkey) if worldcode is None else print_world_info(worldcode),
             add_msg(ImageMessage('map', filename))
         ])(request)
         request.add_on_res(remove_files([filename]))
@@ -753,6 +767,7 @@ class Ellatu:
     def sign_for_user(self, userkey: UserKey) -> Request:
         request = Request(self)
         return pipeline_sequence([
+            add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
             print_level_info()
@@ -760,7 +775,6 @@ class Ellatu:
 
     def get_req_id(self) -> int:
         return randint(0, 1000000000000)
-
 
 
 class EllatuPipeline:
