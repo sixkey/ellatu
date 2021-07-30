@@ -1,5 +1,6 @@
+from collections import deque
 import re
-from typing import List, Optional, Tuple
+from typing import Deque, List, Optional, Tuple
 from ellatu_db import UserKey
 from ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
     ParagraphMessage
@@ -43,19 +44,55 @@ def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
 
+def split_text(text: str, message_size: int) -> List[str]:
+    chunks = []
+
+    # This is a very naive solution with many problems, but will have to do now
+
+    lines = text.split('\n')
+    buf = ''
+    for line in lines:
+        if len(line) > message_size:
+            raise RuntimeError(f"A line can't be more than {message_size} " + \
+                               "characters long")
+        if len(buf) + len(line) + 1 > message_size:
+            chunks.append(buf)
+            buf = ''
+        if buf != '':
+            buf += '\n'
+        buf += line
+    if buf != '':
+        chunks.append(buf)
+    return chunks
+
+def add_block(blocks: List[str], block: str) -> None:
+    if len(block) <= 1000:
+        blocks.append(block)
+        return
+
+    for chunk in split_text(block, 1000):
+        blocks.append(chunk)
 
 def flush_blocks(embed: discord.Embed, title: Optional[str],
-                 blocks: List[str]) -> None:
+                 blocks: List[str], inline: bool = True) -> None:
     if not title and not blocks:
         return
-    title = title if title else '\u200b'
-    value = '\n\n'.join(blocks) if blocks else '\u200b'
-    blocks.clear()
-    embed.add_field(name=title, value=value, inline=True)
 
+    queue = deque(blocks)
+    title = title if title else '\u200b'
+    while queue:
+        value = ''
+        while queue and len(value) + len(queue[0]) < 1000:
+            print("BLOCK")
+            print(queue[0])
+            value += '\n\n' + queue.popleft()
+        embed.add_field(name=title, value=value, inline=inline)
+        title = '\u200b'
+    blocks.clear()
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
+                        inline: bool = True,
                         desc: Optional[str] = None) -> None:
     color = discord.Color.green() if request.alive else discord.Color.red()
     embed = create_embed(title, color, desc)
@@ -68,19 +105,20 @@ async def send_response(request: Request, channel: TextChannel,
 
     for message in request.messages:
         if isinstance(message, TextMessage):
-            text_blocks.append(message.message)
+            add_block(text_blocks, message.message)
         elif isinstance(message, ParagraphMessage):
-            text_blocks.append(message.message)
+            add_block(text_blocks, message.message)
             if message.images:
                 images += message.images
         elif isinstance(message, MessageSegment):
-            flush_blocks(embed, name, text_blocks)
+            flush_blocks(embed, name, text_blocks, inline=inline)
             name = message.title
         elif isinstance(message, ImageMessage):
             images.append((message.alt_text, message.location))
         else:
-            text_blocks.append(str(message))
-    flush_blocks(embed, name, text_blocks)
+            add_block(text_blocks, str(message))
+
+    flush_blocks(embed, name, text_blocks, inline=inline)
 
     image_file = None
     if images:
@@ -144,12 +182,12 @@ class EllatuCommandCog(commands.Cog):
     @commands.command()
     async def move(self, ctx, levelcode: str) -> None:
         request = self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
-        await send_response(request, ctx.channel, title="Move")
+        await send_response(request, ctx.channel, title="Move", inline=False)
 
     @commands.command()
     async def sign(self, ctx) -> None:
         request = self.ellatu.sign_for_user(dc_userkey(ctx.author))
-        await send_response(request, ctx.channel, title="Sign")
+        await send_response(request, ctx.channel, title="Sign", inline=False)
 
     @commands.command()
     async def submit(self, ctx, *, text: str) -> None:
