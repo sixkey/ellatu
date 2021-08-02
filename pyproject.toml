@@ -11,6 +11,7 @@ requires = [
     "Pillow", 
     "tatsu",
     "numpy", 
-    "wheel" 
+    "wheel", 
+    "pymongo"
 ]
 build-backend = "setuptools.build_meta"
