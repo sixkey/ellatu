@@ -26,6 +26,10 @@ MongoId = str
 ClientService = str
 ClientId = str
 UserKey = Tuple[ClientService, ClientId]
+Worldcode = str
+Levelcode = str
+LevelKey = Tuple[Worldcode, Levelcode]
+
 
 ###############################################################################
 # Misc
@@ -41,6 +45,9 @@ def int_in_range(value: int, min_value: Optional[int],
 
 def get_userkey(doc: Document) -> UserKey:
     return (doc["client_ser"], doc['client_id'])
+
+def get_levelkey(level: Document) -> LevelKey:
+    return (level["worldcode"], level["code"])
 
 
 ###############################################################################
@@ -191,6 +198,10 @@ class DictValidator(Validator[Document]):
         self.scheme = scheme
 
     def pred(self, value: Document, trace: List[str]) -> bool:
+
+        if not isinstance(value, dict):
+            return val_error(trace, f"The value is not dictionary")
+
         for key in self.scheme:
             if key not in value:
                 return val_error(trace, f"Key {key} is not present")
@@ -403,6 +414,7 @@ class Level(Model):
                 "prereqs": ListValidator(RefKeyValidator(collection, "code")),
 
                 "pipeline": StringValidator(min_size=4, max_size=16),
+                "attrs": DictValidator({}),
                 "tests": ListValidator(None),
 
                 "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
@@ -416,7 +428,8 @@ class Level(Model):
             "desc": "",
             "tags": [],
             "prereqs": [],
-            "tests": []
+            "tests": [],
+            "attrs": {}
         }
 
     def get_by_code(self, worldcode: str, levelcode: str) -> Optional[Document]:

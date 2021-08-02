@@ -1,6 +1,7 @@
 from typing import Dict, Optional, List
+
 from ellatu import pipeline_tree, terminate_request
-from mapper_pipeline import MapperPipeline
+from mapper_pipeline import DEFAULT_SETTINGS, MapperPipeline, get_level_settings
 from ellatu_db import EllatuDB, Document
 from ellatu import Ellatu, Request, RequestAction
 import os
@@ -52,11 +53,25 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
             with open(os.path.join('mapper', f"{levelcode}.json"), 'r') as lvl:
                 level = json.load(lvl)
                 level_doc = JSONEditor(level).select(
-                    ['title', 'desc', 'code', 'tags', 'prereqs', 'tests', 'pipeline']
+                    ['title', 'desc', 'code', 'tags', 'prereqs',
+                     'tests', 'pipeline', 'attrs']
                 ).inject(
                     {'worldcode': world['code']}
                 ).mat()
                 ellatudb.level.d_update(['code', 'worldcode'], level_doc)
+
+
+def mapper_header(level: Document) -> Optional[str]:
+    if level['pipeline'] == 'mapper':
+        settings = get_level_settings(level)
+        return "*max users: {}*\n".format(settings['users'] \
+                                        if settings['users'] is not None \
+                                        else 'unlimited') + \
+               f"*max blocks: {settings['blocks']}*\n" + \
+               f"*max lines: {settings['lines']}*\n" + \
+               f"*max cols: {settings['cols']}*\n"
+    return None
+
 
 if __name__ == "__main__":
 
@@ -91,6 +106,8 @@ if __name__ == "__main__":
     ellatu.on_run_workflow = pipeline_tree({
         "mapper": mapper_pipeline.on_run()
     })
+
+    ellatu.header = mapper_header
 
     ellatu_bot = commands.Bot(command_prefix='!')
     ellatu_bot.add_cog(EllatuCommandCog(ellatu_bot, ellatu))
