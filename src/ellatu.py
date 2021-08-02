@@ -3,8 +3,10 @@ import os
 import re
 
 import image_editing as imge
-from ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
-from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
+from ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, \
+    get_levelkey, get_userkey
+from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, \
+    TypeVar
 from enum import Enum
 from datetime import datetime, timedelta
 from random import randint
@@ -54,7 +56,8 @@ class Message:
 
 class MessageSegment(Message):
 
-    def __init__(self, title: str, message_type: MessageType = MessageType.LOG):
+    def __init__(self, title: str,
+                 message_type: MessageType = MessageType.LOG):
         super().__init__(message_type)
         self.title = title
 
@@ -260,7 +263,7 @@ def add_users(userkeys: List[UserKey]) -> RequestAction:
             request.users[get_userkey(user)] = user
         if keys_set:
             terminate_request(request,
-                              f"The users were not found")
+                              "The users were not found")
         return request
     return action
 
@@ -270,7 +273,9 @@ def move_users() -> RequestAction:
         if request.level is None:
             return terminate_request(request, "Invalid level")
         for userkey, _ in request.users.items():
-            if not request.ellatu.db.user.move_user(userkey, request.level["worldcode"], request.level["code"]):
+            if not request.ellatu.db.user.move_user(
+                    userkey, request.level["worldcode"],
+                    request.level["code"]):
                 return terminate_request(request, "Unable to move user")
         return request
     return action
@@ -279,20 +284,20 @@ def move_users() -> RequestAction:
 
 
 def assign_codeblocks(assignments: Dict[UserKey, List[str]]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def assign_codeblocks_action(request: Request) -> Request:
         for userkey, codeblocks in assignments.items():
             if userkey not in request.users:
                 request.messages.append(TextMessage(
-                    f"User not is not in the request"))
+                    "User not is not in the request"))
                 continue
             user = request.users[userkey]
             request.codeblocks[user["_id"]] = codeblocks
         return request
-    return action
+    return assign_codeblocks_action
 
 
 def assign_from_workplace(userkeys: List[UserKey]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def assign_from_workplace_action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request,
                                      "The request doesn't have valid \
@@ -305,11 +310,37 @@ def assign_from_workplace(userkeys: List[UserKey]) -> RequestAction:
         for userid, blocks in codeblocks.items():
             request.codeblocks[userid] = blocks
         return request
-    return action
+    return assign_from_workplace_action
+
+
+def assign_from_workbench() -> RequestAction:
+    def assign_from_workbench_action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "Level not set")
+        userids = [u["_id"] for _, u in request.users.items()]
+        codeblocks = request.ellatu.db.workplace\
+            .get_workbenches(userids, request.level["worldcode"])
+        for _, user in request.users.items():
+            userid = user["_id"]
+            if userid in codeblocks:
+                request.codeblocks[userid] = codeblocks[userid]
+        return request
+    return assign_from_workbench_action
+
+
+def assign_to_workbench() -> RequestAction:
+    def assign_to_workbench_action(request: Request) -> Request:
+        if request.level is None:
+            return terminate_request(request, "Level not set")
+        if not request.ellatu.db.workplace.set_workbenches(
+            request.codeblocks, request.level["worldcode"]):
+            return terminate_request(request, "Failed to save workbench")
+        return request
+    return assign_to_workbench_action
 
 
 def print_codeblocks() -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_codeblocks_action(request: Request) -> Request:
         res = ""
 
         usermap = {}
@@ -328,11 +359,11 @@ def print_codeblocks() -> RequestAction:
         trace(request, res)
 
         return request
-    return action
+    return print_codeblocks_action
 
 
 def limit_users(number: Optional[int]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def limit_users_action(request: Request) -> Request:
         if number is None:
             return request
         if len(request.codeblocks.keys()) > number:
@@ -340,11 +371,11 @@ def limit_users(number: Optional[int]) -> RequestAction:
                 request,
                 f"There were more than {number} users")
         return request
-    return action
+    return limit_users_action
 
 
 def limit_codeblocks(number: Optional[int]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def limit_codeblocks_action(request: Request) -> Request:
         if number is None:
             return request
         for _, codeblocks in request.codeblocks.items():
@@ -354,27 +385,27 @@ def limit_codeblocks(number: Optional[int]) -> RequestAction:
                     f"There were more then {number} codeblocks"
                 )
         return request
-    return action
+    return limit_codeblocks_action
 
 
 def limit_lines(number: Optional[int]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def limit_lines_action(request: Request) -> Request:
         if number is None:
             return request
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
-                if len(list(filter(lambda x: x.strip() != '', 
+                if len(list(filter(lambda x: x.strip() != '',
                                    codeblock.splitlines()))) > number:
                     return terminate_request(
                         request,
                         f"A codeblock was longer than {number} lines"
                     )
         return request
-    return action
+    return limit_lines_action
 
 
 def limit_columns(number: Optional[int]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def limit_columns_action(request: Request) -> Request:
         if number is None:
             return request
         for _, codeblocks in request.codeblocks.items():
@@ -386,7 +417,7 @@ def limit_columns(number: Optional[int]) -> RequestAction:
                             f"Line was longer than {number} characters"
                         )
         return request
-    return action
+    return limit_columns_action
 
 
 # Localize actions ############################################################
@@ -400,7 +431,7 @@ def parse_level_code(code: str) -> Tuple[Optional[str], str]:
 
 
 def localize_by_user(userkey: UserKey) -> RequestAction:
-    def action(request: Request) -> Request:
+    def localize_by_user_action(request: Request) -> Request:
         user = request.ellatu.db.user.get_user(userkey)
         if user is None:
             return terminate_request(request, "The user was not found")
@@ -411,57 +442,62 @@ def localize_by_user(userkey: UserKey) -> RequestAction:
         request.level = request.ellatu.db.level.get_by_code(worldcode,
                                                             levelcode)
         return request
-    return action
+    return localize_by_user_action
 
 
-def localize_by_code(worldcode: Optional[str], levelcode: Optional[str], userkey: Optional[UserKey] = None) -> RequestAction:
-    def action(request: Request) -> Request:
+def localize_by_code(worldcode: Optional[str], levelcode: Optional[str],
+                     userkey: Optional[UserKey] = None) -> RequestAction:
+    def localize_by_code_action(request: Request) -> Request:
         w_code = worldcode
         l_code = levelcode
         if w_code is None or l_code is None:
             if userkey is None:
-                return terminate_request(request, "Part of code missing but no user")
+                return terminate_request(
+                    request, "Part of code missing but no user")
             user = request.ellatu.db.user.get_user(userkey)
             if user is None:
-                return terminate_request(request, "Part of code missing but user not found")
+                return terminate_request(
+                    request, "Part of code missing but user not found")
             if user['worldcode'] is None or user['levelcode'] is None:
                 return terminate_request(request, "The user is in no level")
             if w_code is None:
                 w_code = user['worldcode']
             if l_code is None:
                 l_code = user['levelcode']
+
         level = request.ellatu.db.level.get_one(
             worldcode=w_code, code=l_code)
         if not level:
             return terminate_request(request, "Invalid level code")
         request.level = level
         return request
-    return action
+    return localize_by_code_action
 
 
 # Level/world actions #########################################################
 
 
 def add_levels_worldcode(worldcode: str) -> RequestAction:
-    def action(request: Request) -> Request:
+    def add_levels_worldcode_action(request: Request) -> Request:
         levels = request.ellatu.db.level.get(worldcode=worldcode)
         for level in levels:
             request.levels[get_levelkey(level)] = level
         return request
-    return action
+    return add_levels_worldcode_action
 
 
 def add_local_levels() -> RequestAction:
-    def action(request: Request) -> Request:
+    def add_local_levels_action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request, "Level not set")
         return add_levels_worldcode(request.level['worldcode'])(request)
-    return action
+    return add_local_levels_action
 
 
 def print_levels() -> RequestAction:
     @data_action(["beaten"])
-    def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
+    def print_levels_action(request: Request,
+                            beaten: Set[Tuple[str, str]]) -> Request:
         res = ""
         for _, level in request.levels.items():
             title_str = f"**{level['title']}** [*{level_code_doc(level)}*]"
@@ -475,16 +511,19 @@ def print_levels() -> RequestAction:
                 title_wrapper = ('|| Locked: ', '||')
             res += title_wrapper[0] + title_str + title_wrapper[1]
             if level['prereqs']:
-                res += f" needs {','.join(['_' + s + '_' for s in level['prereqs']])}"
-            res += '\n'
-        return trace(request, res)
-    return action
+                p_str = ','.join(['_' + s + '_' for s in level['prereqs']])
+                res += f" needs {p_str}"
+                res += '\n'
+                trace(request, res)
+        return request
+    return print_levels_action
 
 
 def draw_levels(filename: str, userkey: Optional[UserKey] = None,
                 include_worldcode: bool = True) -> RequestAction:
     @data_action(["beaten"])
-    def action(request: Request, beaten: Set[Tuple[str, str]]) -> Request:
+    def draw_levels_action(request: Request,
+                           beaten: Set[Tuple[str, str]]) -> Request:
         dot = pygraphviz.AGraph(strict=False, directed=True)
         dot.node_attr["shape"] = "rect"
         dot.node_attr["style"] = "filled"
@@ -502,7 +541,8 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
                 fillcolor = "#56de3e"
             if is_locked(beaten, level):
                 fillcolor = "#d63c31"
-            if target and target == (level['worldcode'], level['code']):
+            if target and target == (level['worldcode'],
+                                        level['code']):
                 fillcolor = "#5c70d6"
             code = level_code_doc(level)
             label = code if include_worldcode else level['code']
@@ -515,29 +555,29 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
         imge.edit_image(filename, imge.edit_sequence([
             imge.expand_to_aspect(1),
             imge.expand(total=20)
-        ]))
+            ]))
         return request
-    return action
+    return draw_levels_action
 
 
 def print_level_info(
         header: Callable[[Document], Optional[str]] = lambda _: None,
         desc: bool = True) -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_level_info_action(request: Request) -> Request:
         if request.level is None:
             return trace(request, "No level selected")
         text = f"**{request.level['title']}** " + \
             f"[_{level_code_doc(request.level)}_]"
 
-        header_text = header(request.level) 
-        if header_text: 
-            text += '\n' + header_text
+        header_text = header(request.level)
         if desc:
+            if header_text:
+                text += '\n' + header_text
             text += '\n' + request.level['desc']
 
         request.add_message(ParagraphMessage(text))
         return request
-    return action
+    return print_level_info_action
 
 
 def format_world_title(world: Document) -> str:
@@ -545,41 +585,41 @@ def format_world_title(world: Document) -> str:
 
 
 def print_worlds() -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_worlds_action(request: Request) -> Request:
         worlds = request.ellatu.db.world.get()
         res = ""
         for world in worlds:
             res += format_world_title(world)
         return trace(request, res)
-    return action
+    return print_worlds_action
 
 
 def print_world_info(worldcode: str) -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_world_info_action(request: Request) -> Request:
         world = request.ellatu.db.world.get_one(code=worldcode)
         if world is None:
             return terminate_request(request, "World not found")
         return trace(request, format_world_title(world))
-    return action
+    return print_world_info_action
 
 
 def print_world_info_local() -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_world_info_local_action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request, "Level not set")
         return print_world_info(request.level['worldcode'])(request)
-    return action
+    return print_world_info_local_action
 
 
 def print_world_info_user(userkey: UserKey) -> RequestAction:
-    def action(request: Request) -> Request:
+    def print_world_info_user_action(request: Request) -> Request:
         if userkey not in request.users:
             return terminate_request(request, "User not in request")
         user = request.users[userkey]
         if not user['worldcode']:
             return terminate_request(request, "User not in world")
         return print_world_info(user['worldcode'])(request)
-    return action
+    return print_world_info_user_action
 
 # Permission actions ##########################################################
 
@@ -604,7 +644,7 @@ def is_beaten(beaten: Optional[Set[Tuple[str, str]]], level: Document) -> bool:
 
 
 def permission_check() -> RequestAction:
-    def action(request: Request) -> Request:
+    def permission_check_action(request: Request) -> Request:
         if request.level is None:
             return trace(request, "No level to check permission for")
 
@@ -621,14 +661,14 @@ def permission_check() -> RequestAction:
                 "Users are not allowed to be in the level: " +
                 f"{','.join(not_allowed_users)}")
         return request
-    return action
+    return permission_check_action
 
 
 # Submission actions ##########################################################
 
 
 def save_submit() -> RequestAction:
-    def action(request: Request) -> Request:
+    def save_submit_action(request: Request) -> Request:
 
         if request.level is None:
             return terminate_request(request, "Invalid level")
@@ -640,12 +680,13 @@ def save_submit() -> RequestAction:
                 codeblocks
             ):
                 terminate_request(request, "Unable to save submit")
+                return request
         return request
-    return action
+    return save_submit_action
 
 
 def save_solution() -> RequestAction:
-    def action(request: Request) -> Request:
+    def save_solution_action(request: Request) -> Request:
         if not request.alive:
             return terminate_request(request, "The request is already dead")
         if request.level is None:
@@ -660,11 +701,11 @@ def save_solution() -> RequestAction:
                 return terminate_request(request, "Unable to save solution")
 
         return trace(request, "The scores have been saved")
-    return action
+    return save_solution_action
 
 
 def load_beaten_by_user(userkey: UserKey) -> RequestAction:
-    def action(request: Request) -> Request:
+    def load_beaten_by_user_action(request: Request) -> Request:
         user = request.ellatu.db.user.get_user(userkey)
         if user is None:
             return terminate_request(request, "User not found")
@@ -672,7 +713,7 @@ def load_beaten_by_user(userkey: UserKey) -> RequestAction:
         beaten = set([(s['worldcode'], s['levelcode']) for s in solutions])
         request.data["beaten"] = beaten
         return request
-    return action
+    return load_beaten_by_user_action
 
 
 ###############################################################################
@@ -720,16 +761,31 @@ class Ellatu:
             print_level_info(header=self.header)
         ])(request)
 
-    def submit(self, userkey: UserKey, codeblocks: List[str]) -> Request:
+    def workbench(self, userkey: UserKey, codeblocks: List[str]) -> Request:
         request = Request(self)
         return pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
             assign_codeblocks({userkey: codeblocks}),
+            assign_to_workbench()
+        ])(request)
+
+    def submit(self, userkey: UserKey,
+               codeblocks: Optional[List[str]]) -> Request:
+        request = Request(self)
+        return pipeline_sequence([
+            add_users([userkey]),
+            localize_by_user(userkey),
+            permission_check(),
+
+            assign_codeblocks({userkey: codeblocks})
+            if codeblocks is not None
+            else assign_from_workbench(),
+
             self.on_submit_workflow,
             save_submit(),
-            add_msg(MessageSegment("The codeblocks was added to:")),
+            add_msg(MessageSegment("The codeblocks were added to:")),
             print_level_info(header=self.header, desc=False)
         ])(request)
 
@@ -768,7 +824,8 @@ class Ellatu:
             print_levels()
         ])(request)
 
-    def draw_map(self, userkey: UserKey, worldcode: Optional[str] = None) -> Request:
+    def draw_map(self, userkey: UserKey,
+                 worldcode: Optional[str] = None) -> Request:
 
         # TODO: temp solution
 

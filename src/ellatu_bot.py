@@ -73,21 +73,27 @@ def add_block(blocks: List[str], block: str) -> None:
     for chunk in split_text(block, 1000):
         blocks.append(chunk)
 
+def add_field(embed: discord.Embed, title: Optional[str] = None,
+              value: Optional[str] = None, inline: bool = False) -> None:
+    embed.add_field(
+        name=title if title is not None else '\u200b',
+        value=value if value is not None and value.strip() != '' else '-',
+        inline=inline
+    )
+
 def flush_blocks(embed: discord.Embed, title: Optional[str],
                  blocks: List[str], inline: bool = True) -> None:
     if not title and not blocks:
         return
 
     queue = deque(blocks)
-    title = title if title else '\u200b'
     while queue:
         value = ''
         while queue and len(value) + len(queue[0]) < 1000:
-            print("BLOCK")
-            print(queue[0])
             value += '\n\n' + queue.popleft()
-        embed.add_field(name=title, value=value, inline=inline)
-        title = '\u200b'
+        if title or value:
+            add_field(embed, title=title, value=value, inline=inline)
+        title = None
     blocks.clear()
 
 async def send_response(request: Request, channel: TextChannel,
@@ -154,10 +160,10 @@ class EllatuListeningCog(commands.Cog):
     async def on_message(self, message) -> None:
         print(f'{message.author}, {message.content}')
 
+
 ###############################################################################
 # Commands
 ###############################################################################
-
 
 class EllatuCommandCog(commands.Cog):
     def __init__(self, bot, ellatu):
@@ -190,10 +196,19 @@ class EllatuCommandCog(commands.Cog):
         await send_response(request, ctx.channel, title="Sign", inline=False)
 
     @commands.command()
-    async def submit(self, ctx, *, text: str) -> None:
-        codeblocks = extract_code_blocks(text)
+    async def submit(self, ctx, *, text: Optional[str] = None) -> None:
+        codeblocks = extract_code_blocks(text) if text is not None else None
         request = self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
         await send_response(request, ctx.channel, title="Submit")
+
+    @commands.command()
+    async def workbench(self, ctx, *, text: str) -> None:
+        codeblocks = extract_code_blocks(text)
+        request = self.ellatu.workbench(dc_userkey(ctx.author), codeblocks)
+        if request.alive:
+            await ctx.send(f"Workbench saved for {ctx.author.name}")
+        else:
+            await send_response(request, ctx.channel, title="Workbench")
 
     @commands.command()
     async def run(self, ctx, users: commands.Greedy[discord.Member]) -> None:
@@ -206,6 +221,16 @@ class EllatuCommandCog(commands.Cog):
     async def map(self, ctx, worldcode = None) -> None:
         request = self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
         await send_response(request, ctx.channel, title="Map")
+
+    @commands.Cog.listener()
+    async def on_message(self, message) -> None:
+        self.mode = "message"
+        await self.bot.process_commands(message)
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, _, after) -> None:
+        self.mode = "edit"
+        await self.bot.process_commands(after)
 
 #   @commands.Cog.listener()
 #   async def on_command_error(self, ctx, error):
