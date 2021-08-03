@@ -22,8 +22,7 @@ def compile_codeblocks(parser) -> RequestAction:
         for _, codeblocks in request.codeblocks.items():
             try:
                 models += mapper.compile_codeblocks(codeblocks, parser)
-            except Exception as e:
-
+            except mapper.MapperError as e:
                 return terminate_request(request, "Compilation error:\n " +
                                          str(e))
 
@@ -38,8 +37,8 @@ def run_models(request: Request, models: List[mapper.Model]) -> Request:
         return terminate_request(request, "Invalid level")
     try:
         _, mapp, ship = mapper.run_models(models)
-    except RuntimeError as e:
-        return terminate_request(request, "Runtime error: " + str(e))
+    except mapper.MapperError as e:
+        return terminate_request(request, "Mapper error: " + str(e))
 
     for test in request.level['tests']:
         print(test)

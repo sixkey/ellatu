@@ -21,6 +21,19 @@ R = TypeVar("R")
 S = TypeVar("S")
 
 ###############################################################################
+# Error
+###############################################################################
+
+class MapperError(Exception):
+    pass
+
+class MapperRuntimeError(MapperError):
+    pass
+
+class MapperCompilationError(MapperError):
+    pass
+
+###############################################################################
 # TUPLE OPERATIONS
 ###############################################################################
 
@@ -562,10 +575,14 @@ class MapperWalker(NodeWalker):
 
         function = self.scope.lookup(node.name)
         if function is None:
-            raise ValueError(f"function is not defined")
+            raise MapperRuntimeError(
+                f"function '{node.name}' is not defined")
 
         if len(function.params) != (len(node.args)):
-            raise ValueError(f"Invalid number of positional arguments")
+            raise MapperRuntimeError(
+                f"Invalid number of positional arguments, function " +
+                f"'{node.name}' takes {len(function.params)} arguments, " +
+                f"but {node.args} were given.")
 
         scope = self.scope
         newscope = self.scope.copy()
@@ -583,8 +600,8 @@ class MapperWalker(NodeWalker):
 
         lift, value = result
         if lift != 'return':
-            raise SyntaxError(f"A uncaught lift other than return tried " +
-                              "to escape function")
+            raise MapperRuntimeError(
+                f"A uncaught '{lift}' lift tried to escape function")
         return value
 
     def walk__neg(self, node):
@@ -592,7 +609,7 @@ class MapperWalker(NodeWalker):
             return int(not self.walk(node.val))
         elif node.op == '-':
             return - self.walk(node.val)
-        raise SyntaxError(f"Invalid negation operator")
+        raise MapperRuntimeError(f"Invalid negation operator '{node.op}'")
 
     def walk__range(self, node):
         start = self.walk(node.start)
@@ -609,13 +626,13 @@ class MapperWalker(NodeWalker):
 
     def walk__operation(self, node):
         if node.op not in ARIT_OPS:
-            raise ValueError(f"Unknown operation: {node.op}")
+            raise MapperRuntimeError(f"Unknown operation '{node.op}")
         return ARIT_OPS[node.op](self.walk(node.left), self.walk(node.right))
 
     def walk__variable(self, node):
         value = self.scope.lookup(node.name)
         if value is None:
-            raise ValueError(f"Variable '{node.name}' is undefined")
+            raise MapperRuntimeError(f"Variable '{node.name}' is undefined")
         return value
 
     def walk__integer(self, node):
@@ -632,29 +649,48 @@ def in_opt_range(value: int,
     return (left is None or left <= value) \
         and (right is None or right >= value)
 
+def opt_range_str(rng: Optional[Tuple[Optional[int], Optional[int]]]) \
+    -> Tuple[str, bool]:
+    if rng is None:
+        return 'unlimited number of', True
 
-def argument_check(number: Optional[Tuple[Optional[int],
+    bottom, top = rng
+
+    if top is not None and bottom is None:
+        return f'at most {top}', top != 1
+    if bottom is not None and top is None:
+        return f'at least {bottom}', bottom != 1
+    if bottom == top:
+        return str(bottom), bottom != 1
+    return f'from {bottom} to {top}', True
+
+
+def argument_check(name: str, number: Optional[Tuple[Optional[int],
                                           Optional[int]]] = None):
     def dec(func):
         def wrapper(ctx: MapperWalker, args: List[Any]):
             if not in_opt_range(len(args), number):
-                raise RuntimeError("The number of args don't match function")
+                rng_string, rng_pl = opt_range_str(number)
+                raise MapperRuntimeError(
+                    f"Function '{name}' takes {rng_string} positional " +
+                    f"argument{'s' if rng_pl else ''} " +
+                    f"but {len(args)} were given.")
             func(ctx, args)
         return wrapper
     return dec
 
 
-@argument_check(number=(1, None))
+@argument_check('print', number=(1, None))
 def map_print(_: MapperWalker, args: List[Any]):
     print(*args)
 
 
-@argument_check(number=(1, 1))
+@argument_check('mov', number=(1, 1))
 def mov(mapper: MapperWalker, args: List[Any]):
     mapper.ship.move_fwd(args[0])
 
 
-@argument_check(number=(1, 1))
+@argument_check('rot', number=(1, 1))
 def rot(mapper: MapperWalker, args: List[Any]):
     mapper.ship.rotate(args[0])
 
@@ -662,17 +698,17 @@ def rot(mapper: MapperWalker, args: List[Any]):
 COLS = ['black', 'red', 'green', 'blue']
 
 
-@argument_check(number=(1, 1))
+@argument_check('put', number=(1, 1))
 def put(mapper: MapperWalker, args: List[Any]):
     mapper.ship.put(color=COLS[args[0]])
 
 
-@argument_check(number=(1, 1))
+@argument_check('pen', number=(1, 1))
 def pen(mapper: MapperWalker, args: List[Any]):
     mapper.ship.pendown = bool(args[0])
 
 
-@argument_check(number=(1, 1))
+@argument_check('col', number=(1, 1))
 def col(mapper: MapperWalker, args: List[Any]):
     mapper.ship.color = COLS[args[0]]
 
@@ -693,7 +729,10 @@ def compile_code(code: str, parser = None) -> Model:
     if parser is None:
         parser = mapper_parser(True)
     processed = mapper_preprocessor(code)
-    return parser.parse(processed)
+    try:
+        return parser.parse(processed)
+    except Exception as e:
+        raise MapperCompilationError(str(e))
 
 
 def compile_codeblocks(codeblocks: List[str], parser = None) -> List[Model]:
@@ -713,8 +752,13 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
     scopestack.add_scope()
     main_function = scopestack.lookup('main')
     if main_function is None:
-        raise RuntimeError("No main found")
-    result = walker.walk(main_function.body)
+        raise MapperRuntimeError("No main found")
+    try:
+        result = walker.walk(main_function.body)
+    except RecursionError:
+        raise MapperRuntimeError('maximum recursion depth exceeded')
+    except ZeroDivisionError as e:
+        raise MapperRuntimeError(str(e))
 
     return result, mapper_map, ship
 

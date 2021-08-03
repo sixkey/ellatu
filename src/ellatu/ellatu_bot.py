@@ -6,8 +6,8 @@ from discord.channel import TextChannel
 from discord.errors import InvalidArgument
 from discord.ext import commands
 
-from .ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
-    ParagraphMessage, pipeline_sequence
+from .ellatu import (Ellatu, ImageMessage, Request, TextMessage,
+                     MessageSegment, ParagraphMessage)
 from .ellatu_db import UserKey
 
 ###############################################################################
@@ -46,6 +46,7 @@ def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
 
+
 def split_text(text: str, message_size: int) -> List[str]:
     chunks = []
 
@@ -55,7 +56,7 @@ def split_text(text: str, message_size: int) -> List[str]:
     buf = ''
     for line in lines:
         if len(line) > message_size:
-            raise RuntimeError(f"A line can't be more than {message_size} " + \
+            raise RuntimeError(f"A line can't be more than {message_size} " +
                                "characters long")
         if len(buf) + len(line) + 1 > message_size:
             chunks.append(buf)
@@ -67,6 +68,7 @@ def split_text(text: str, message_size: int) -> List[str]:
         chunks.append(buf)
     return chunks
 
+
 def add_block(blocks: List[str], block: str) -> None:
     if len(block) <= 1000:
         blocks.append(block)
@@ -75,6 +77,7 @@ def add_block(blocks: List[str], block: str) -> None:
     for chunk in split_text(block, 1000):
         blocks.append(chunk)
 
+
 def add_field(embed: discord.Embed, title: Optional[str] = None,
               value: Optional[str] = None, inline: bool = False) -> None:
     embed.add_field(
@@ -82,6 +85,7 @@ def add_field(embed: discord.Embed, title: Optional[str] = None,
         value=value if value is not None and value.strip() != '' else '-',
         inline=inline
     )
+
 
 def flush_blocks(embed: discord.Embed, title: Optional[str],
                  blocks: List[str], inline: bool = True) -> None:
@@ -97,6 +101,7 @@ def flush_blocks(embed: discord.Embed, title: Optional[str],
             add_field(embed, title=title, value=value, inline=inline)
         title = None
     blocks.clear()
+
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
@@ -180,6 +185,7 @@ def check_trigger(trigger_event):
         return pred_set
     raise InvalidArgument("Trigger event can only be str or set")
 
+
 class EllatuCommandCog(commands.Cog):
     def __init__(self, bot, ellatu):
         self.bot = bot
@@ -257,7 +263,7 @@ class EllatuCommandCog(commands.Cog):
     @commands.command()
     @commands.check(check_trigger('on_message'))
     async def subrun(self, ctx, users: commands.Greedy[discord.Member], *,
-                  text: Optional[str] = None) -> None:
+                     text: Optional[str] = None) -> None:
         codeblocks = extract_code_blocks(text) if text is not None else None
         userkeys = [dc_userkey(ctx.message.author)] + \
             [dc_userkey(u) for u in users]
@@ -269,8 +275,9 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.command()
     @commands.check(check_trigger('on_message'))
-    async def map(self, ctx, worldcode = None) -> None:
-        request = self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
+    async def map(self, ctx, worldcode=None) -> None:
+        request = self.ellatu.draw_map(
+            dc_userkey(ctx.message.author), worldcode)
         await send_response(request, ctx.channel, title="Map")
 
     # Listeners ###
@@ -286,11 +293,10 @@ class EllatuCommandCog(commands.Cog):
     async def on_message(self, message) -> None:
         await self.process_commands(message, "on_message")
 
-
     @commands.Cog.listener()
     async def on_message_edit(self, _, message) -> None:
         await self.process_commands(message, "on_message_edit")
 
-#   @commands.Cog.listener()
-#   async def on_command_error(self, ctx, error):
-#       await ctx.send(f"{str(error)}")
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        await ctx.send(f"{str(error)}")
