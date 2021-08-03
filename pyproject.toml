@@ -4,22 +4,15 @@ executionEnvironments = [
   { root = "src" }
 ]
 
-[mypy-discord.*]
-ignore_missing_imports = True
-[mypy-tatsu.*]
-ignore_missing_imports = True
-[mypy-pymongo.*]
-ignore_missing_imports = True
-[mypy-PIL.*]
-ignore_missing_imports = True
-
 [build-system]
 requires = [
     "setuptools>=42",
     "discord", 
-    "Pillow", 
+    "pillow", 
     "tatsu",
     "numpy", 
-    "wheel" 
+    "wheel", 
+    "pymongo", 
+    "pygraphviz", 
 ]
 build-backend = "setuptools.build_meta"

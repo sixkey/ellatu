@@ -1,10 +1,9 @@
-from ellatu_db import Document
-from inspect import Traceback
+from .ellatu_db import Document
 from typing import Dict, List, Optional
-from ellatu import MessageSegment, Request, add_msg, data_action, limit_codeblocks, limit_columns, \
+from .ellatu import MessageSegment, Request, add_msg, data_action, limit_codeblocks, limit_columns, \
     limit_lines, limit_users, remove_files, terminate_request, trace, pipeline_sequence, \
     RequestAction, EllatuPipeline, MessageType, ParagraphMessage
-import mapper
+from . import mapper
 
 PARSER = mapper.mapper_parser()
 

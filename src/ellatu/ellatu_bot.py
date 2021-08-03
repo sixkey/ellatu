@@ -1,12 +1,13 @@
 from collections import deque
 import re
-from typing import Deque, List, Optional, Tuple
-from ellatu_db import UserKey
-from ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
-    ParagraphMessage
+from typing import List, Optional, Tuple
 import discord
 from discord.channel import TextChannel
 from discord.ext import commands
+
+from .ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
+    ParagraphMessage
+from .ellatu_db import UserKey
 
 ###############################################################################
 # Utils

@@ -1,8 +1,10 @@
 *
 
 !src
+!src/ellatu
+!tests
 
-!setup.cnf
+!setup.cfg
 !pyproject.toml
 
 !.gitignore

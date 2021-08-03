@@ -2,15 +2,14 @@ from collections import deque
 import os
 import re
 
-import image_editing as imge
-from ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, \
-    get_levelkey, get_userkey
-from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, \
-    TypeVar
+from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
 from datetime import datetime, timedelta
 from random import randint
 import pygraphviz
+
+from . import image_editing as imge
+from .ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
 
 ###############################################################################
 # Types
@@ -569,8 +568,8 @@ def print_level_info(
         text = f"**{request.level['title']}** " + \
             f"[_{level_code_doc(request.level)}_]"
 
-        header_text = header(request.level)
         if desc:
+            header_text = header(request.level)
             if header_text:
                 text += '\n' + header_text
             text += '\n' + request.level['desc']
