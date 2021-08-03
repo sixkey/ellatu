@@ -14,7 +14,5 @@ requires = [
     "wheel", 
     "pymongo", 
     "pygraphviz", 
-    "json", 
-    "pprint"  
 ]
 build-backend = "setuptools.build_meta"
