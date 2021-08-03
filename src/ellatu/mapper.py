@@ -10,6 +10,9 @@ import json
 import sys
 import os
 
+from importlib import resources
+import io
+
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
 
@@ -343,7 +346,7 @@ def draw_map(mapp: Map, ship: Optional[Ship] = None):
 ###############################################################################
 
 def mapper_parser(asmodel=True):
-    with open("mapper.ebnf") as f:
+    with resources.open_text('ellatu', 'mapper.ebnf') as f:
         grammar = f.read()
         return tatsu.compile(grammar, asmodel=asmodel)
 

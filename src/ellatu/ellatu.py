@@ -1,14 +1,14 @@
 from collections import deque
 import os
 import re
-
-import image_editing as imge
-from ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
 from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
 from enum import Enum
 from datetime import datetime, timedelta
 from random import randint
 import pygraphviz
+
+from . import image_editing as imge
+from .ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
 
 ###############################################################################
 # Types
@@ -363,7 +363,7 @@ def limit_lines(number: Optional[int]) -> RequestAction:
             return request
         for _, codeblocks in request.codeblocks.items():
             for codeblock in codeblocks:
-                if len(list(filter(lambda x: x.strip() != '', 
+                if len(list(filter(lambda x: x.strip() != '',
                                    codeblock.splitlines()))) > number:
                     return terminate_request(
                         request,
@@ -529,8 +529,8 @@ def print_level_info(
         text = f"**{request.level['title']}** " + \
             f"[_{level_code_doc(request.level)}_]"
 
-        header_text = header(request.level) 
-        if header_text: 
+        header_text = header(request.level)
+        if header_text:
             text += '\n' + header_text
         if desc:
             text += '\n' + request.level['desc']
