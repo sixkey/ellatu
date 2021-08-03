@@ -8,10 +8,13 @@ executionEnvironments = [
 requires = [
     "setuptools>=42",
     "discord", 
-    "Pillow", 
+    "pillow", 
     "tatsu",
     "numpy", 
     "wheel", 
-    "pymongo"
+    "pymongo", 
+    "pygraphviz", 
+    "json", 
+    "pprint"  
 ]
 build-backend = "setuptools.build_meta"
