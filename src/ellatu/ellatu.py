@@ -2,14 +2,17 @@ from collections import deque
 import os
 import re
 
-from typing import Deque, Dict, List, Callable, Optional, Any, Set, Tuple, TypeVar
+from typing import (Deque, Dict, List, Callable,
+                    Optional, Any, Set, Tuple, TypeVar)
 from enum import Enum
 from datetime import datetime, timedelta
 from random import randint
+import logging
 import pygraphviz
 
 from . import image_editing as imge
-from .ellatu_db import Document, EllatuDB, MongoId, UserKey, LevelKey, get_levelkey, get_userkey
+from .ellatu_db import (Document, EllatuDB, MongoId,
+                        UserKey, LevelKey, get_levelkey, get_userkey)
 
 ###############################################################################
 # Types
@@ -332,7 +335,7 @@ def assign_to_workbench() -> RequestAction:
         if request.level is None:
             return terminate_request(request, "Level not set")
         if not request.ellatu.db.workplace.set_workbenches(
-            request.codeblocks, request.level["worldcode"]):
+                request.codeblocks, request.level["worldcode"]):
             return terminate_request(request, "Failed to save workbench")
         return request
     return assign_to_workbench_action
@@ -541,7 +544,7 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
             if is_locked(beaten, level):
                 fillcolor = "#d63c31"
             if target and target == (level['worldcode'],
-                                        level['code']):
+                                     level['code']):
                 fillcolor = "#5c70d6"
             code = level_code_doc(level)
             label = code if include_worldcode else level['code']
@@ -554,7 +557,7 @@ def draw_levels(filename: str, userkey: Optional[UserKey] = None,
         imge.edit_image(filename, imge.edit_sequence([
             imge.expand_to_aspect(1),
             imge.expand(total=20)
-            ]))
+        ]))
         return request
     return draw_levels_action
 
@@ -739,6 +742,10 @@ class TempFileStorage:
             os.remove(temp_file)
 
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+
 class Ellatu:
 
     def __init__(self, ellatu_db: EllatuDB, temp_folder: str = 'ellatu_temp'):
@@ -752,7 +759,11 @@ class Ellatu:
                     request: Optional[Request] = None) -> Request:
         if request is None:
             request = Request(self)
-        return pipeline_sequence(list(request_actions))(request)
+        try:
+            return pipeline_sequence(list(request_actions))(request)
+        except Exception as error:
+            logger.exception(error)
+            return terminate_request(request, "Unexpected internal error")
 
     def user_move(self, userkey: UserKey, code: str) -> RequestAction:
         worldcode, levelcode = parse_level_code(code)
