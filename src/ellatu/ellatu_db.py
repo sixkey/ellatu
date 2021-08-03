@@ -49,7 +49,6 @@ def get_userkey(doc: Document) -> UserKey:
 def get_levelkey(level: Document) -> LevelKey:
     return (level["worldcode"], level["code"])
 
-
 ###############################################################################
 # Validation
 ###############################################################################
@@ -259,7 +258,6 @@ class OptionalValidator(Validator[T]):
 
 Kwargs = Any
 
-
 class Model:
     def __init__(self, collection: Collection):
         self.collection = collection
@@ -293,17 +291,25 @@ class Model:
             return None
         return self.collection.insert_one(doc)
 
-    def d_update(self, keys: List[str], doc: Document) -> Optional[Document]:
-        self._add_def(doc)
-        if self.doc_validator is not None:
-            if not self.doc_validator.validate(doc):
-                return None
-        elif self.validator is not None and not self.validator.validate(doc):
+    def d_update(self, find: Document, doc: Document,
+                 upsert=True) -> Optional[Document]:
+
+        value = self.collection.find_one_and_update(
+                find, {"$set": doc}, upsert=False,
+                return_document=ReturnDocument.AFTER)
+        if value:
+            return value
+
+        if not upsert:
             return None
-        key_doc = {}
+
+        return self.d_add({**find, **doc})
+
+    def d_rewrite(self, keys: List[str], doc: Document) -> Optional[Document]:
+        find = {}
         for key in keys:
-            key_doc[key] = doc[key]
-        return self.collection.find_one_and_update(key_doc, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER)
+            find[key] = doc[key]
+        return self.d_update(find, doc, upsert=True)
 
     def get(self, **kwargs: Kwargs) -> List[Document]:
         query = self.build_dict(**kwargs)
@@ -436,21 +442,26 @@ class Level(Model):
         return self.get_one(worldcode=worldcode, code=levelcode)
 
 
+CodeblockValidator = StringValidator(min_size=1, max_size=4096)
+
 class Workplace(Model):
 
     def __init__(self, collection: Collection, users: Collection, worlds: Collection):
         super().__init__(collection)
-        self.validator = SequentialValidator([
+        self.doc_validator = SequentialValidator([
             ReqFieldsValidator(["user", "worldcode", "submissions"]),
-            PrimaryKeyValidator(collection, ["user", "worldcode"]),
             DictValidator({
                 "user": RefKeyValidator(users, "_id"),
                 "worldcode": RefKeyValidator(worlds, "code"),
-                "submissions": ListValidator(
-                    ListValidator(StringValidator(min_size=1, max_size=4096)))
+                "submissions": ListValidator(ListValidator(CodeblockValidator)),
+                "bench": ListValidator(CodeblockValidator)
             })
         ])
-        self.defaults = {"submissions": []}
+        self.validator = SequentialValidator([
+            PrimaryKeyValidator(collection, ["user", "worldcode"]),
+            self.doc_validator
+        ])
+        self.defaults = {"submissions": [], "bench": []}
 
     def add_submission(self, userid: MongoId, worldcode: str,
                        submission: List[str]) -> Optional[Document]:
@@ -485,6 +496,22 @@ class Workplace(Model):
             result[workplace["user"]] = codeblocks
         return result
 
+    def get_workbenches(self, userids: List[MongoId], worldcode: str) -> Dict[MongoId, List[str]]:
+        result = {}
+        for workplace in self.get_workplaces(userids, worldcode):
+            result[workplace["user"]] = workplace["bench"]
+        return result
+
+    def set_workbenches(self, codeblocks: Dict[MongoId, List[str]], worldcode: str):
+        results=[]
+        for userid, blocks in codeblocks.items():
+            res = self.d_update({"user": userid, "worldcode": worldcode}, {"bench": blocks})
+            print(res)
+            if res is not None:
+                results.append(res)
+        return results
+
+
 
 class Solution(Model):
 
@@ -515,7 +542,7 @@ class Solution(Model):
                      mark: int) -> Optional[Document]:
         sol_doc = self.build_dict(user=userid, levelcode=levelcode,
                                   worldcode=worldcode, mark=mark)
-        return self.d_update(['user', 'levelcode', 'worldcode'], sol_doc)
+        return self.d_rewrite(['user', 'levelcode', 'worldcode'], sol_doc)
 
     def get_solutions(self, userid: MongoId, worldcode: Optional[str] = None) \
                         -> List[Document]:

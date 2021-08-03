@@ -48,7 +48,7 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
         world = json.load(f)
         world_doc = JSONEditor(world).select(
             ['title', 'code', 'tags', 'prereqs']).mat()
-        ellatudb.world.d_update(['code'], world_doc)
+        ellatudb.world.d_rewrite(['code'], world_doc)
         for levelcode in world['levels']:
             with open(os.path.join('mapper', f"{levelcode}.json"), 'r') as lvl:
                 level = json.load(lvl)
@@ -58,7 +58,7 @@ def loadworld(ellatudb: EllatuDB, path: str) -> None:
                 ).inject(
                     {'worldcode': world['code']}
                 ).mat()
-                ellatudb.level.d_update(['code', 'worldcode'], level_doc)
+                ellatudb.level.d_rewrite(['code', 'worldcode'], level_doc)
 
 
 def mapper_header(level: Document) -> Optional[str]:
@@ -111,5 +111,10 @@ if __name__ == "__main__":
 
     ellatu_bot = commands.Bot(command_prefix='!')
     ellatu_bot.add_cog(EllatuCommandCog(ellatu_bot, ellatu))
+
+    @ellatu_bot.event
+    async def on_message(message):
+        pass
+
     ellatu_bot.add_cog(EllatuListeningCog(ellatu_bot, ellatu))
     ellatu_bot.run(TOKEN)
