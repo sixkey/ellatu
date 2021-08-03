@@ -748,8 +748,13 @@ class Ellatu:
         self.db = ellatu_db
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
 
-    def user_move(self, userkey: UserKey, code: str) -> Request:
-        request = Request(self)
+    def run_request(self, *request_actions: RequestAction,
+                    request: Optional[Request] = None) -> Request:
+        if request is None:
+            request = Request(self)
+        return pipeline_sequence(list(request_actions))(request)
+
+    def user_move(self, userkey: UserKey, code: str) -> RequestAction:
         worldcode, levelcode = parse_level_code(code)
         return pipeline_sequence([
             add_users([userkey]),
@@ -758,21 +763,20 @@ class Ellatu:
             move_users(),
             add_msg(TextMessage("**You have been moved to:**")),
             print_level_info(header=self.header)
-        ])(request)
+        ])
 
-    def workbench(self, userkey: UserKey, codeblocks: List[str]) -> Request:
-        request = Request(self)
+    def workbench(self, userkey: UserKey,
+                  codeblocks: List[str]) -> RequestAction:
         return pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
             assign_codeblocks({userkey: codeblocks}),
             assign_to_workbench()
-        ])(request)
+        ])
 
     def submit(self, userkey: UserKey,
-               codeblocks: Optional[List[str]]) -> Request:
-        request = Request(self)
+               codeblocks: Optional[List[str]]) -> RequestAction:
         return pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
@@ -786,10 +790,9 @@ class Ellatu:
             save_submit(),
             add_msg(MessageSegment("The codeblocks were added to:")),
             print_level_info(header=self.header, desc=False)
-        ])(request)
+        ])
 
-    def run(self, userkeys: List[UserKey]) -> Request:
-        request = Request(self)
+    def run(self, userkeys: List[UserKey]) -> RequestAction:
         return pipeline_sequence([
             add_users(userkeys),
             localize_by_user(userkeys[0]),
@@ -799,21 +802,16 @@ class Ellatu:
             print_codeblocks(),
             self.on_run_workflow,
             save_solution()
-        ])(request)
+        ])
 
-    def user_connected(self, userkey: UserKey, username: str) -> bool:
-        return self.db.user.open_user(userkey, username) is not None
-
-    def get_worlds(self) -> Request:
-        request = Request(self)
+    def get_worlds(self) -> RequestAction:
         return pipeline_sequence([
             add_msg(MessageSegment('Available worlds')),
             print_worlds()
-        ])(request)
+        ])
 
     def get_levels(self, userkey: UserKey,
-                   worldcode: Optional[str] = None) -> Request:
-        request = Request(self)
+                   worldcode: Optional[str] = None) -> RequestAction:
         return pipeline_sequence([
             pipeline_sequence(
                 [localize_by_user(userkey), add_local_levels()]
@@ -821,15 +819,12 @@ class Ellatu:
             load_beaten_by_user(userkey),
             add_msg(MessageSegment('Available levels in _mapper_')),
             print_levels()
-        ])(request)
+        ])
 
     def draw_map(self, userkey: UserKey,
                  worldcode: Optional[str] = None) -> Request:
-
         # TODO: temp solution
-
         request = Request(self)
-
         filename = self.temp_files.add_temp_filename(
             str(request.id) + '-map.png'
         )
@@ -847,14 +842,16 @@ class Ellatu:
         request.add_on_res(remove_files([filename]))
         return request
 
-    def sign_for_user(self, userkey: UserKey) -> Request:
-        request = Request(self)
+    def sign_for_user(self, userkey: UserKey) -> RequestAction:
         return pipeline_sequence([
             add_users([userkey]),
             localize_by_user(userkey),
             permission_check(),
             print_level_info(header=self.header)
-        ])(request)
+        ])
+
+    def user_connected(self, userkey: UserKey, username: str) -> bool:
+        return self.db.user.open_user(userkey, username) is not None
 
     def get_req_id(self) -> int:
         return randint(0, 1000000000000)
