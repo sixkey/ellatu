@@ -43,8 +43,10 @@ def int_in_range(value: int, min_value: Optional[int],
         return False
     return True
 
+
 def get_userkey(doc: Document) -> UserKey:
     return (doc["client_ser"], doc['client_id'])
+
 
 def get_levelkey(level: Document) -> LevelKey:
     return (level["worldcode"], level["code"])
@@ -52,6 +54,7 @@ def get_levelkey(level: Document) -> LevelKey:
 ###############################################################################
 # Validation
 ###############################################################################
+
 
 def val_error(trace: List[str], message: str) -> bool:
     trace.append(message)
@@ -173,7 +176,7 @@ class ReqValidator(Validator[Optional[Any]]):
     def __init__(self) -> None:
         super().__init__("value is required")
 
-    def pred(self, value: Optional[Any], _ : List[str]) -> bool:
+    def pred(self, value: Optional[Any], _: List[str]) -> bool:
         return value is not None
 
 
@@ -199,7 +202,7 @@ class DictValidator(Validator[Document]):
     def pred(self, value: Document, trace: List[str]) -> bool:
 
         if not isinstance(value, dict):
-            return val_error(trace, f"The value is not dictionary")
+            return val_error(trace, "The value is not dictionary")
 
         for key in self.scheme:
             if key not in value:
@@ -219,7 +222,7 @@ class SequentialValidator(Validator[T]):
     def pred(self, value: T, trace: List[str]) -> bool:
         for validator in self.validators:
             if not validator.pred(value, trace):
-                return val_error(trace, f"Sequence failed")
+                return val_error(trace, "Sequence failed")
         return True
 
 
@@ -231,12 +234,12 @@ class ListValidator(Validator[List[T]]):
 
     def pred(self, value: List[T], trace: List[str]) -> bool:
         if not isinstance(value, list):
-            return val_error(trace, f"The value is not list")
+            return val_error(trace, "The value is not list")
         if self.validator is not None:
             for subvalue in value:
                 if not self.validator.pred(subvalue, trace):
-                    return val_error(trace, f"ListValidator failed on "
-                                     + "{subvalue}")
+                    return val_error(trace, "ListValidator failed on "
+                                     + f"{subvalue}")
         return True
 
 
@@ -257,6 +260,7 @@ class OptionalValidator(Validator[T]):
 ###############################################################################
 
 Kwargs = Any
+
 
 class Model:
     def __init__(self, collection: Collection):
@@ -295,8 +299,8 @@ class Model:
                  upsert=True) -> Optional[Document]:
 
         value = self.collection.find_one_and_update(
-                find, {"$set": doc}, upsert=False,
-                return_document=ReturnDocument.AFTER)
+            find, {"$set": doc}, upsert=False,
+            return_document=ReturnDocument.AFTER)
         if value:
             return value
 
@@ -324,6 +328,7 @@ class Model:
 
     def exists(self, **kwargs: Kwargs) -> bool:
         return self.get_one(**kwargs) is not None
+
 
 class User(Model):
 
@@ -360,7 +365,7 @@ class User(Model):
         return self.add(client_ser=userkey[0], client_id=userkey[1],
                         username=username)
 
-    def open_user(self, userkey: UserKey, username:str) -> Optional[Document]:
+    def open_user(self, userkey: UserKey, username: str) -> Optional[Document]:
         user = self.get_user(userkey)
         if user:
             return user
@@ -389,7 +394,8 @@ class World(Model):
             DictValidator({
                 "title": titleValidator,
                 "code": codeValidator,
-                "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
+                "tags": ListValidator(StringValidator(min_size=4,
+                                                      max_size=32)),
                 "prereqs": ListValidator(RefKeyValidator(collection, "code")),
             })
         ])
@@ -423,7 +429,8 @@ class Level(Model):
                 "attrs": DictValidator({}),
                 "tests": ListValidator(None),
 
-                "tags": ListValidator(StringValidator(min_size=4, max_size=32)),
+                "tags": ListValidator(StringValidator(min_size=4,
+                                                      max_size=32)),
             })
         ])
         self.validator = SequentialValidator([
@@ -438,22 +445,26 @@ class Level(Model):
             "attrs": {}
         }
 
-    def get_by_code(self, worldcode: str, levelcode: str) -> Optional[Document]:
+    def get_by_code(self, worldcode: str,
+                    levelcode: str) -> Optional[Document]:
         return self.get_one(worldcode=worldcode, code=levelcode)
 
 
 CodeblockValidator = StringValidator(min_size=1, max_size=4096)
 
+
 class Workplace(Model):
 
-    def __init__(self, collection: Collection, users: Collection, worlds: Collection):
+    def __init__(self, collection: Collection, users: Collection,
+                 worlds: Collection):
         super().__init__(collection)
         self.doc_validator = SequentialValidator([
             ReqFieldsValidator(["user", "worldcode", "submissions"]),
             DictValidator({
                 "user": RefKeyValidator(users, "_id"),
                 "worldcode": RefKeyValidator(worlds, "code"),
-                "submissions": ListValidator(ListValidator(CodeblockValidator)),
+                "submissions": ListValidator(
+                    ListValidator(CodeblockValidator)),
                 "bench": ListValidator(CodeblockValidator)
             })
         ])
@@ -482,10 +493,13 @@ class Workplace(Model):
         return self.collection \
             .update_one(doc, {'$set': {"submissions": submissions}})
 
-    def get_workplaces(self, userids: List[MongoId], worldcode: str) -> List[Document]:
-        return self.collection.find({"worldcode": worldcode, "user": {"$in": userids}})
+    def get_workplaces(self, userids: List[MongoId],
+                       worldcode: str) -> List[Document]:
+        return self.collection.find({"worldcode": worldcode,
+                                     "user": {"$in": userids}})
 
-    def get_codeblocks(self, userids: List[MongoId], worldcode: str) -> Dict[MongoId, List[str]]:
+    def get_codeblocks(self, userids: List[MongoId],
+                       worldcode: str) -> Dict[MongoId, List[str]]:
         workplaces = self.get_workplaces(userids, worldcode)
         result = {}
         for workplace in workplaces:
@@ -496,21 +510,23 @@ class Workplace(Model):
             result[workplace["user"]] = codeblocks
         return result
 
-    def get_workbenches(self, userids: List[MongoId], worldcode: str) -> Dict[MongoId, List[str]]:
+    def get_workbenches(self, userids: List[MongoId],
+                        worldcode: str) -> Dict[MongoId, List[str]]:
         result = {}
         for workplace in self.get_workplaces(userids, worldcode):
             result[workplace["user"]] = workplace["bench"]
         return result
 
-    def set_workbenches(self, codeblocks: Dict[MongoId, List[str]], worldcode: str):
-        results=[]
+    def set_workbenches(self, codeblocks: Dict[MongoId, List[str]],
+                        worldcode: str):
+        results = []
         for userid, blocks in codeblocks.items():
-            res = self.d_update({"user": userid, "worldcode": worldcode}, {"bench": blocks})
+            res = self.d_update(
+                {"user": userid, "worldcode": worldcode}, {"bench": blocks})
             print(res)
             if res is not None:
                 results.append(res)
         return results
-
 
 
 class Solution(Model):
@@ -519,7 +535,8 @@ class Solution(Model):
                  levels: Collection, worlds: Collection):
         super().__init__(collection)
         self.doc_validator = SequentialValidator([
-            ReqFieldsValidator(["user", "levelcode", "worldcode", "mark", "date"]),
+            ReqFieldsValidator(
+                ["user", "levelcode", "worldcode", "mark", "date"]),
             DictValidator({
                 "user": RefKeyValidator(users, "_id"),
                 "levelcode": RefKeyValidator(levels, "code"),
@@ -531,7 +548,8 @@ class Solution(Model):
                                   "worldcode": "worldcode"})
         ])
         self.validator = SequentialValidator([
-            PrimaryKeyValidator(collection, ['user', 'levelcode', 'worldcode']),
+            PrimaryKeyValidator(
+                collection, ['user', 'levelcode', 'worldcode']),
             self.doc_validator
         ])
         self.defaults = {
@@ -545,17 +563,19 @@ class Solution(Model):
         return self.d_rewrite(['user', 'levelcode', 'worldcode'], sol_doc)
 
     def get_solutions(self, userid: MongoId, worldcode: Optional[str] = None) \
-                        -> List[Document]:
+            -> List[Document]:
         query = {"user": userid}
         if worldcode is not None:
             query['worldcode'] = worldcode
         return self.collection.find(query)
 
+
 class EllatuDB:
 
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: Optional[int] = None,
+                 db_name: str = DB_DEV):
         self.client = MongoClient(host, port)
-        self.db = self.client[DB_DEV]
+        self.db = self.client[db_name]
         self.user = User(self.db[COL_USERS])
         self.world = World(self.db[COL_WORLDS])
         self.level = Level(self.db[COL_LEVELS], self.db[COL_WORLDS])
