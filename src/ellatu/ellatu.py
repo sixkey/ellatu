@@ -875,8 +875,6 @@ class Ellatu:
 
     def draw_map(self, userkey: UserKey,
                  worldcode: Optional[str] = None) -> RequestAction:
-        # TODO: temp solution - there should be a better way of creatign temp
-        # files
         return pipeline_sequence([
             add_users([userkey]),
             pipeline_sequence(
