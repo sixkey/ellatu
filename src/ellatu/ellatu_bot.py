@@ -1,4 +1,5 @@
 from collections import deque
+import logging
 import re
 from typing import List, Optional, Tuple
 import discord
@@ -9,6 +10,8 @@ from discord.ext import commands
 from .ellatu import (Ellatu, ImageMessage, Request, TextMessage,
                      MessageSegment, ParagraphMessage)
 from .ellatu_db import UserKey
+
+ellatu_logger = logging.getLogger('ellatu')
 
 ###############################################################################
 # Utils
@@ -139,8 +142,10 @@ async def send_response(request: Request, channel: TextChannel,
         image_file = discord.File(thumb_file, "thumb.png")
         embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
-    request.on_resolved()
-
+    try:
+        request.on_resolved()
+    except Exception as e:
+        ellatu_logger.exception(e)
 
 async def send_error(channel: TextChannel, title: str,
                      message: Optional[str]) -> None:
@@ -276,8 +281,9 @@ class EllatuCommandCog(commands.Cog):
     @commands.command()
     @commands.check(check_trigger('on_message'))
     async def map(self, ctx, worldcode=None) -> None:
-        request = self.ellatu.draw_map(
-            dc_userkey(ctx.message.author), worldcode)
+        request = self.ellatu.run_request(
+            self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
+        )
         await send_response(request, ctx.channel, title="Map")
 
     # Listeners ###

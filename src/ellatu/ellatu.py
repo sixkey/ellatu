@@ -140,6 +140,7 @@ class Request:
                               ] = codeblocks if codeblocks else {}
 
         self.data: Dict[str, Any] = {}
+        self.temp_files: Dict[str, str] = {}
 
         self._on_resolved_actions: List['RequestAction'] = []
 
@@ -235,15 +236,47 @@ def pipeline_sequence(actions: List[RequestAction]) -> RequestAction:
 
 
 def pipeline_tree(tree: Dict[str, RequestAction]) -> RequestAction:
-    def action(request: Request) -> Request:
+    def pipeline_action(request: Request) -> Request:
         if request.level is None:
             return terminate_request(request, "No level set")
         if request.level['pipeline'] not in tree:
             return terminate_request(request, "Unknown pipeline")
         return tree[request.level['pipeline']](request)
-    return action
+    return pipeline_action
+
+
+def pipeline_with(action: Callable[[Request], RequestAction]) -> RequestAction:
+    def with_action(request: Request) -> Request:
+        return action(request)(request)
+    return with_action
 
 # File in action ##############################################################
+
+
+def add_on_resolved(action: RequestAction) -> RequestAction:
+    def add_on_resolved_action(request: Request) -> Request:
+        request.add_on_res(action)
+        return request
+    return add_on_resolved_action
+
+
+def add_temp_file(extension: str) -> RequestAction:
+    def create_temp_file_action(request: Request) -> Request:
+        filename = request.ellatu.temp_files.add_temp_filename(
+            str(request.id) + '-' + extension
+        )
+        request.temp_files[extension] = filename
+        return request
+    return create_temp_file_action
+
+
+def clean_temp_files() -> RequestAction:
+    def clean_temp_files_action(request: Request) -> Request:
+        for _, filename in request.temp_files.items():
+            request.ellatu.temp_files.remove_temp_file(filename)
+        request.temp_files.clear()
+        return request
+    return clean_temp_files_action
 
 
 def remove_files(filenames: List[str]) -> RequestAction:
@@ -521,11 +554,16 @@ def print_levels() -> RequestAction:
     return print_levels_action
 
 
-def draw_levels(filename: str, userkey: Optional[UserKey] = None,
+def draw_levels(filekey: str, userkey: Optional[UserKey] = None,
                 include_worldcode: bool = True) -> RequestAction:
     @data_action(["beaten"])
     def draw_levels_action(request: Request,
                            beaten: Set[Tuple[str, str]]) -> Request:
+
+        if filekey not in request.temp_files:
+            return terminate_request(request, "Temp file wasn't ready")
+        filename = request.temp_files[filekey]
+
         dot = pygraphviz.AGraph(strict=False, directed=True)
         dot.node_attr["shape"] = "rect"
         dot.node_attr["style"] = "filled"
@@ -733,6 +771,9 @@ class TempFileStorage:
         self.temp_files.append((datetime.now(), filename))
         return filename
 
+    def remove_temp_file(self, filename: str) -> None:
+        os.remove(filename)
+
     def remove_temp_files(self) -> None:
         if not self.temp_files:
             return
@@ -833,25 +874,24 @@ class Ellatu:
         ])
 
     def draw_map(self, userkey: UserKey,
-                 worldcode: Optional[str] = None) -> Request:
-        # TODO: temp solution
-        request = Request(self)
-        filename = self.temp_files.add_temp_filename(
-            str(request.id) + '-map.png'
-        )
-        request = pipeline_sequence([
+                 worldcode: Optional[str] = None) -> RequestAction:
+        # TODO: temp solution - there should be a better way of creatign temp
+        # files
+        return pipeline_sequence([
             add_users([userkey]),
             pipeline_sequence(
                 [localize_by_user(userkey), add_local_levels()]
             ) if worldcode is None else add_levels_worldcode(worldcode),
             load_beaten_by_user(userkey),
-            draw_levels(filename, userkey=userkey, include_worldcode=False),
             print_world_info_user(
                 userkey) if worldcode is None else print_world_info(worldcode),
-            add_msg(ImageMessage('map', filename))
-        ])(request)
-        request.add_on_res(remove_files([filename]))
-        return request
+            add_temp_file('map.png'),
+            add_on_resolved(clean_temp_files()),
+            draw_levels('map.png', userkey=userkey, include_worldcode=False),
+            pipeline_with(lambda request: pipeline_sequence([
+                add_msg(ImageMessage('map', request.temp_files['map.png']))
+            ]))
+        ])
 
     def sign_for_user(self, userkey: UserKey) -> RequestAction:
         return pipeline_sequence([
