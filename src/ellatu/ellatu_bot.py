@@ -1,12 +1,17 @@
 from collections import deque
+import logging
 import re
-from typing import Deque, List, Optional, Tuple
-from ellatu_db import UserKey
-from ellatu import Ellatu, ImageMessage, Request, TextMessage, MessageSegment, \
-    ParagraphMessage
+from typing import List, Optional, Tuple
 import discord
 from discord.channel import TextChannel
+from discord.errors import InvalidArgument
 from discord.ext import commands
+
+from .ellatu import (Ellatu, ImageMessage, Request, TextMessage,
+                     MessageSegment, ParagraphMessage)
+from .ellatu_db import UserKey
+
+ellatu_logger = logging.getLogger('ellatu')
 
 ###############################################################################
 # Utils
@@ -44,6 +49,7 @@ def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
 
+
 def split_text(text: str, message_size: int) -> List[str]:
     chunks = []
 
@@ -53,7 +59,7 @@ def split_text(text: str, message_size: int) -> List[str]:
     buf = ''
     for line in lines:
         if len(line) > message_size:
-            raise RuntimeError(f"A line can't be more than {message_size} " + \
+            raise RuntimeError(f"A line can't be more than {message_size} " +
                                "characters long")
         if len(buf) + len(line) + 1 > message_size:
             chunks.append(buf)
@@ -65,6 +71,7 @@ def split_text(text: str, message_size: int) -> List[str]:
         chunks.append(buf)
     return chunks
 
+
 def add_block(blocks: List[str], block: str) -> None:
     if len(block) <= 1000:
         blocks.append(block)
@@ -73,22 +80,31 @@ def add_block(blocks: List[str], block: str) -> None:
     for chunk in split_text(block, 1000):
         blocks.append(chunk)
 
+
+def add_field(embed: discord.Embed, title: Optional[str] = None,
+              value: Optional[str] = None, inline: bool = False) -> None:
+    embed.add_field(
+        name=title if title is not None else '\u200b',
+        value=value if value is not None and value.strip() != '' else '-',
+        inline=inline
+    )
+
+
 def flush_blocks(embed: discord.Embed, title: Optional[str],
                  blocks: List[str], inline: bool = True) -> None:
     if not title and not blocks:
         return
 
     queue = deque(blocks)
-    title = title if title else '\u200b'
     while queue:
         value = ''
         while queue and len(value) + len(queue[0]) < 1000:
-            print("BLOCK")
-            print(queue[0])
             value += '\n\n' + queue.popleft()
-        embed.add_field(name=title, value=value, inline=inline)
-        title = '\u200b'
+        if title or value:
+            add_field(embed, title=title, value=value, inline=inline)
+        title = None
     blocks.clear()
+
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
@@ -126,8 +142,10 @@ async def send_response(request: Request, channel: TextChannel,
         image_file = discord.File(thumb_file, "thumb.png")
         embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
-    request.on_resolved()
-
+    try:
+        request.on_resolved()
+    except Exception as e:
+        ellatu_logger.exception(e)
 
 async def send_error(channel: TextChannel, title: str,
                      message: Optional[str]) -> None:
@@ -154,59 +172,137 @@ class EllatuListeningCog(commands.Cog):
     async def on_message(self, message) -> None:
         print(f'{message.author}, {message.content}')
 
+
 ###############################################################################
 # Commands
 ###############################################################################
+
+def check_trigger(trigger_event):
+    if isinstance(trigger_event, str):
+        def pred_str(ctx):
+            return hasattr(ctx, 'trigger_event') \
+                and ctx.trigger_event == trigger_event
+        return pred_str
+    elif isinstance(trigger_event, set):
+        def pred_set(ctx):
+            return hasattr(ctx, 'trigger_event') \
+                and ctx.trigger_event in trigger_event
+        return pred_set
+    raise InvalidArgument("Trigger event can only be str or set")
 
 
 class EllatuCommandCog(commands.Cog):
     def __init__(self, bot, ellatu):
         self.bot = bot
         self.ellatu = ellatu
+        self.event_mode = None
 
-    @commands.command()
+    @commands.command(aliases=['hi'])
+    @commands.check(check_trigger('on_message'))
     async def hello(self, ctx) -> None:
         self.ellatu.user_connected(dc_userkey(ctx.author), ctx.author.name)
         await ctx.send(f'Hello {ctx.author.name}')
 
-    @commands.command()
+    @commands.command(aliases=['lvls'])
+    @commands.check(check_trigger('on_message'))
     async def levels(self, ctx, worldcode: Optional[str] = None) -> None:
-        request = self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
+        request = self.ellatu.run_request(
+            self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
+        )
         await send_response(request, ctx.channel, title="Levels")
 
     @commands.command()
+    @commands.check(check_trigger('on_message'))
     async def worlds(self, ctx) -> None:
-        request = self.ellatu.get_worlds()
+        request = self.ellatu.run_request(
+            self.ellatu.get_worlds()
+        )
         await send_response(request, ctx.channel, title="Worlds")
 
-    @commands.command()
+    @commands.command(aliases=['mov', 'mv'])
+    @commands.check(check_trigger('on_message'))
     async def move(self, ctx, levelcode: str) -> None:
-        request = self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
+        request = self.ellatu.run_request(
+            self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
+        )
         await send_response(request, ctx.channel, title="Move", inline=False)
 
     @commands.command()
+    @commands.check(check_trigger('on_message'))
     async def sign(self, ctx) -> None:
-        request = self.ellatu.sign_for_user(dc_userkey(ctx.author))
+        request = self.ellatu.run_request(
+            self.ellatu.sign_for_user(dc_userkey(ctx.author))
+        )
         await send_response(request, ctx.channel, title="Sign", inline=False)
 
     @commands.command()
-    async def submit(self, ctx, *, text: str) -> None:
+    async def workbench(self, ctx, *, text: str) -> None:
         codeblocks = extract_code_blocks(text)
-        request = self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
+        request = self.ellatu.run_request(
+            self.ellatu.workbench(dc_userkey(ctx.author), codeblocks)
+        )
+        if request.alive:
+            await ctx.send(f"Workbench saved for {ctx.author.name}")
+        else:
+            await send_response(request, ctx.channel, title="Workbench")
+
+    @commands.command(aliases=['s'])
+    @commands.check(check_trigger('on_message'))
+    async def submit(self, ctx, *, text: Optional[str] = None) -> None:
+        codeblocks = extract_code_blocks(text) if text is not None else None
+        request = self.ellatu.run_request(
+            self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
+        )
         await send_response(request, ctx.channel, title="Submit")
 
-    @commands.command()
+    @commands.command(aliases=['r'])
+    @commands.check(check_trigger('on_message'))
     async def run(self, ctx, users: commands.Greedy[discord.Member]) -> None:
         userkeys = [dc_userkey(ctx.message.author)] + \
             [dc_userkey(u) for u in users]
-        request = self.ellatu.run(userkeys)
+        request = self.ellatu.run_request(
+            self.ellatu.run(userkeys)
+        )
         await send_response(request, ctx.channel, title="Run")
 
     @commands.command()
-    async def map(self, ctx, worldcode = None) -> None:
-        request = self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
+    @commands.check(check_trigger('on_message'))
+    async def subrun(self, ctx, users: commands.Greedy[discord.Member], *,
+                     text: Optional[str] = None) -> None:
+        codeblocks = extract_code_blocks(text) if text is not None else None
+        userkeys = [dc_userkey(ctx.message.author)] + \
+            [dc_userkey(u) for u in users]
+        request = self.ellatu.run_request(
+            self.ellatu.submit(dc_userkey(ctx.author), codeblocks),
+            self.ellatu.run(userkeys)
+        )
+        await send_response(request, ctx.channel, title="Submit and Run")
+
+    @commands.command()
+    @commands.check(check_trigger('on_message'))
+    async def map(self, ctx, worldcode=None) -> None:
+        request = self.ellatu.run_request(
+            self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
+        )
         await send_response(request, ctx.channel, title="Map")
 
-#   @commands.Cog.listener()
-#   async def on_command_error(self, ctx, error):
-#       await ctx.send(f"{str(error)}")
+    # Listeners ###
+
+    async def process_commands(self, message, trigger_event) -> None:
+        if message.author.bot:
+            return
+        ctx = await self.bot.get_context(message)
+        ctx.trigger_event = trigger_event
+        await self.bot.invoke(ctx)
+
+    @commands.Cog.listener()
+    async def on_message(self, message) -> None:
+        await self.process_commands(message, "on_message")
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, _, message) -> None:
+        await self.process_commands(message, "on_message_edit")
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        await ctx.send(f"{str(error)}")
