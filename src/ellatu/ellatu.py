@@ -15,6 +15,12 @@ from .ellatu_db import (Document, EllatuDB, MongoId,
                         UserKey, LevelKey, get_levelkey, get_userkey)
 
 ###############################################################################
+# Logger
+###############################################################################
+
+logger = logging.getLogger('ellatu')
+
+###############################################################################
 # Types
 ###############################################################################
 
@@ -783,8 +789,6 @@ class TempFileStorage:
             os.remove(temp_file)
 
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 class Ellatu:

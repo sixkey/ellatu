@@ -803,6 +803,9 @@ def save_json(path_name: str, org_name: str, test: str):
             header = f.readline()
             prereqs = header[1:].split()
             desc = f.read() + desc
+    else:
+        with open(md_file, 'w') as f:
+            f.write('!\n')
 
     json_str = json.dumps({
         'code': org_name,
