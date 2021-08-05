@@ -738,6 +738,11 @@ def compile_code(code: str, parser = None) -> Model:
 def compile_codeblocks(codeblocks: List[str], parser = None) -> List[Model]:
     return [compile_code(b, parser) for b in codeblocks]
 
+def contains_main(model: Model) -> bool:
+    for dec in model['decls']:
+        if dec.name == 'main':
+            return True
+    return False
 
 def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
     mapper_map = Map(start=(0, 0))
