@@ -8,7 +8,7 @@ from discord.errors import InvalidArgument
 from discord.ext import commands
 
 from .ellatu import (Ellatu, ImageMessage, Request, TextMessage,
-                     MessageSegment, ParagraphMessage)
+                     MessageSegment, ParagraphMessage, pipeline_sequence)
 from .ellatu_db import UserKey
 
 ellatu_logger = logging.getLogger('ellatu')
@@ -142,10 +142,7 @@ async def send_response(request: Request, channel: TextChannel,
         image_file = discord.File(thumb_file, "thumb.png")
         embed.set_image(url="attachment://thumb.png")
     await channel.send(embed=embed, file=image_file)
-    try:
-        request.on_resolved()
-    except Exception as e:
-        ellatu_logger.exception(e)
+    request.ellatu.run_request(request.on_resolved(), request)
 
 async def send_error(channel: TextChannel, title: str,
                      message: Optional[str]) -> None:
@@ -206,40 +203,45 @@ class EllatuCommandCog(commands.Cog):
     @commands.command(aliases=['lvls'])
     @commands.check(check_trigger('on_message'))
     async def levels(self, ctx, worldcode: Optional[str] = None) -> None:
-        request = self.ellatu.run_request(
-            self.ellatu.get_levels(dc_userkey(ctx.author), worldcode)
+        request = self.ellatu.run_new_request(
+            self.ellatu.get_levels(dc_userkey(ctx.author), worldcode),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Levels")
 
     @commands.command()
     @commands.check(check_trigger('on_message'))
     async def worlds(self, ctx) -> None:
-        request = self.ellatu.run_request(
-            self.ellatu.get_worlds()
+        request = self.ellatu.run_new_request(
+            self.ellatu.get_worlds(),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Worlds")
 
     @commands.command(aliases=['mov', 'mv'])
     @commands.check(check_trigger('on_message'))
     async def move(self, ctx, levelcode: str) -> None:
-        request = self.ellatu.run_request(
-            self.ellatu.user_move(dc_userkey(ctx.author), levelcode)
+        request = self.ellatu.run_new_request(
+            self.ellatu.user_move(dc_userkey(ctx.author), levelcode),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Move", inline=False)
 
     @commands.command()
     @commands.check(check_trigger('on_message'))
     async def sign(self, ctx) -> None:
-        request = self.ellatu.run_request(
-            self.ellatu.sign_for_user(dc_userkey(ctx.author))
+        request = self.ellatu.run_new_request(
+            self.ellatu.sign_for_user(dc_userkey(ctx.author)),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Sign", inline=False)
 
     @commands.command()
     async def workbench(self, ctx, *, text: str) -> None:
         codeblocks = extract_code_blocks(text)
-        request = self.ellatu.run_request(
-            self.ellatu.workbench(dc_userkey(ctx.author), codeblocks)
+        request = self.ellatu.run_new_request(
+            self.ellatu.workbench(dc_userkey(ctx.author), codeblocks),
+            dc_userkey(ctx.author)
         )
         if request.alive:
             await ctx.send(f"Workbench saved for {ctx.author.name}")
@@ -250,18 +252,20 @@ class EllatuCommandCog(commands.Cog):
     @commands.check(check_trigger('on_message'))
     async def submit(self, ctx, *, text: Optional[str] = None) -> None:
         codeblocks = extract_code_blocks(text) if text is not None else None
-        request = self.ellatu.run_request(
-            self.ellatu.submit(dc_userkey(ctx.author), codeblocks)
+        request = self.ellatu.run_new_request(
+            self.ellatu.submit(dc_userkey(ctx.author), codeblocks),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Submit")
 
     @commands.command(aliases=['r'])
     @commands.check(check_trigger('on_message'))
     async def run(self, ctx, users: commands.Greedy[discord.Member]) -> None:
-        userkeys = [dc_userkey(ctx.message.author)] + \
-            [dc_userkey(u) for u in users]
-        request = self.ellatu.run_request(
-            self.ellatu.run(userkeys)
+        userkeys = [dc_userkey(u) for u in reversed(users)] + \
+            [dc_userkey(ctx.author)]
+        request = self.ellatu.run_new_request(
+            self.ellatu.run(userkeys),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Run")
 
@@ -272,17 +276,21 @@ class EllatuCommandCog(commands.Cog):
         codeblocks = extract_code_blocks(text) if text is not None else None
         userkeys = [dc_userkey(ctx.message.author)] + \
             [dc_userkey(u) for u in users]
-        request = self.ellatu.run_request(
-            self.ellatu.submit(dc_userkey(ctx.author), codeblocks),
-            self.ellatu.run(userkeys)
+        request = self.ellatu.run_new_request(
+            pipeline_sequence([
+                self.ellatu.submit(dc_userkey(ctx.author), codeblocks),
+                self.ellatu.run(userkeys)
+            ]),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Submit and Run")
 
     @commands.command()
     @commands.check(check_trigger('on_message'))
     async def map(self, ctx, worldcode=None) -> None:
-        request = self.ellatu.run_request(
-            self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode)
+        request = self.ellatu.run_new_request(
+            self.ellatu.draw_map(dc_userkey(ctx.message.author), worldcode),
+            dc_userkey(ctx.author)
         )
         await send_response(request, ctx.channel, title="Map")
 

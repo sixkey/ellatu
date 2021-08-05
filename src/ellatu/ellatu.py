@@ -127,23 +127,21 @@ class ImageMessage(Message):
 
 class Request:
 
-    def __init__(self, ellatu: "Ellatu",
-                 codeblocks: Optional[Dict[MongoId, List[str]]] = None):
-
-        self.id = ellatu.get_req_id()
+    def __init__(self, ellatu: "Ellatu", requestor: UserKey):
 
         self.ellatu = ellatu
-        self.alive = True
+        self.id = ellatu.get_req_id()
 
+        self.alive = True
         self.messages: List[Message] = []
 
         self.level: Optional[Document] = None
         self.levels: Dict[LevelKey, Document] = {}
 
+        self.requestor: UserKey = requestor
         self.users: Dict[UserKey, Document] = {}
 
-        self.codeblocks: Dict[MongoId, List[str]
-                              ] = codeblocks if codeblocks else {}
+        self.codeblocks: Dict[MongoId, List[str]] = {}
 
         self.data: Dict[str, Any] = {}
         self.temp_files: Dict[str, str] = {}
@@ -153,8 +151,8 @@ class Request:
     def add_on_res(self, action: 'RequestAction') -> None:
         self._on_resolved_actions.append(action)
 
-    def on_resolved(self) -> 'Request':
-        return pipeline_sequence(self._on_resolved_actions)(self)
+    def on_resolved(self) -> 'RequestAction':
+        return pipeline_sequence(self._on_resolved_actions)
 
     def add_message(self, message: Message) -> None:
         self.messages.append(message)
@@ -259,6 +257,13 @@ def pipeline_with(action: Callable[[Request], RequestAction]) -> RequestAction:
 # File in action ##############################################################
 
 
+def set_data(key: str, value: Any) -> RequestAction:
+    def set_data_action(request: Request) -> Request:
+        request.data[key] = value
+        return request
+    return set_data_action
+
+
 def add_on_resolved(action: RequestAction) -> RequestAction:
     def add_on_resolved_action(request: Request) -> Request:
         request.add_on_res(action)
@@ -300,8 +305,10 @@ def add_users(userkeys: List[UserKey]) -> RequestAction:
         keys_set = set(userkeys)
         users = request.ellatu.db.user.get_users(userkeys)
         for user in users:
-            keys_set.remove(get_userkey(user))
-            request.users[get_userkey(user)] = user
+            userkey = get_userkey(user)
+            if userkey in keys_set:
+                keys_set.remove(userkey)
+                request.users[get_userkey(user)] = user
         if keys_set:
             terminate_request(request,
                               "The users were not found")
@@ -789,26 +796,28 @@ class TempFileStorage:
             os.remove(temp_file)
 
 
-
-
 class Ellatu:
 
     def __init__(self, ellatu_db: EllatuDB, temp_folder: str = 'ellatu_temp'):
         self.on_submit_workflow: RequestAction = const_action
         self.on_run_workflow: RequestAction = const_action
-        self.header: Callable[[Document], Optional[str]] = lambda x: None
+        self.header: Callable[[Document], Optional[str]] = lambda _x: None
         self.db = ellatu_db
         self.temp_files = TempFileStorage(temp_folder=temp_folder)
 
-    def run_request(self, *request_actions: RequestAction,
-                    request: Optional[Request] = None) -> Request:
-        if request is None:
-            request = Request(self)
+    def run_request(self, request_action: RequestAction,
+                    request: Request) -> Request:
         try:
-            return pipeline_sequence(list(request_actions))(request)
+            return request_action(request)
         except Exception as error:
             logger.exception(error)
             return terminate_request(request, "Unexpected internal error")
+
+    def run_new_request(self, request_action: RequestAction,
+                    requestor: UserKey) -> Request:
+        logger.info(f"{requestor} made an request")
+        request = Request(self, requestor)
+        return self.run_request(request_action, request)
 
     def user_move(self, userkey: UserKey, code: str) -> RequestAction:
         worldcode, levelcode = parse_level_code(code)
@@ -856,6 +865,7 @@ class Ellatu:
             assign_from_workplace(userkeys),
             add_msg(MessageSegment("Running following blocks:")),
             print_codeblocks(),
+            set_data('blocks_order', userkeys),
             self.on_run_workflow,
             save_solution()
         ])
