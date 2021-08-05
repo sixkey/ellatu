@@ -1,9 +1,9 @@
 from collections import defaultdict
-from typing import Any, Callable, DefaultDict, Generator, List, Optional, Tuple, Dict, TypeVar
-from PIL import Image, ImageDraw, ImageFont
+from typing import (Any, Callable, DefaultDict, Generator, List, Optional,
+                    Tuple, Dict, TypeVar)
+from PIL import Image, ImageDraw
 import numpy as np
 from math import pi
-from pprint import pprint
 import tatsu
 from tatsu.walkers import NodeWalker
 import json
@@ -11,7 +11,6 @@ import sys
 import os
 
 from importlib import resources
-import io
 
 Color = str
 TileColor = Tuple[Optional[Color], Optional[Color]]
@@ -480,8 +479,8 @@ MapperASTNode = Any
 class MapperWalker(NodeWalker):
 
     def __init__(self, glob_scope: ScopeStack,
-                 inbuilt: Optional[Dict[str,
-                                        Callable[['MapperWalker', List[Any]], Any]]],
+                 inbuilt: Optional[
+                     Dict[str, Callable[['MapperWalker', List[Any]], Any]]],
                  ship: Ship,
                  mapp: Map) \
             -> None:
@@ -594,7 +593,7 @@ class MapperWalker(NodeWalker):
 
         if len(function.params) != (len(node.args)):
             raise MapperRuntimeError(
-                f"Invalid number of positzonal arguments, function " +
+                "Invalid number of positzonal arguments, function " +
                 f"'{node.name}' takes {len(function.params)} arguments, " +
                 f"but {node.args} were given.")
 
@@ -632,7 +631,7 @@ class MapperWalker(NodeWalker):
         step = self.walk(node.step) if node.step is not None else offset
 
         if (not isinstance(start, int) or not isinstance(end, int)
-            or not isinstance(step, int)):
+                or not isinstance(step, int)):
             raise MapperRuntimeError("Values in range were not of type int")
         return range(start, end + offset, step)
 
