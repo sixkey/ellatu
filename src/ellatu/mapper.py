@@ -317,6 +317,40 @@ def show_map(mapp: Map, ship: Optional[Ship] = None) -> None:
     im.show()
 
 
+def draw_grid(g: ImageDraw.ImageDraw, box: Tuple[int, int, int, int],
+              dims: Tuple[int, int], center: Tuple[float, float],
+              tile_size: int, color: str = 'lightgray', width: int = 2,
+              bold_color: str = 'gray') -> None:
+
+    coord = tran_position((0, 0), dims, tile_size, center)
+
+    width, height = dims
+    left, top, right, bottom = box
+    ln_off_x = width / 2 - (width / 2 // tile_size * tile_size)
+    if (right-left) % 2 == 0:
+        ln_off_x -= tile_size / 2
+    ln_off_y = height / 2 - (height / 2 // tile_size * tile_size)
+    if (top - bottom) % 2 == 0:
+        ln_off_y += tile_size / 2
+
+    ln_off_x = coord[0] - tile_size / 2
+    ln_off_y = coord[1] + tile_size / 2
+
+    off_col = coord[0] // tile_size
+    off_row = coord[1] // tile_size
+
+    frequencies = [(1, color), (5, bold_color)]
+    for freq, line_col in frequencies:
+        for col in range(0, width // tile_size + 1):
+            if (col - off_col) % freq == 0:
+                x = (col - off_col) * tile_size + ln_off_x
+                g.line((x, 0, x, height), fill=line_col, width=2)
+        for row in range(0, height // tile_size + 1):
+            if (row - off_row) % freq == 0:
+                y = (row - off_row) * tile_size + ln_off_y
+                g.line((0, y, width, y), fill=line_col, width=2)
+
+
 def draw_map(mapp: Map, ship: Optional[Ship] = None) -> Image.Image:
     width = 800
     height = 500
@@ -342,6 +376,9 @@ def draw_map(mapp: Map, ship: Optional[Ship] = None) -> Image.Image:
 
     im = Image.new(mode="RGB", size=dims, color="white")
     g = ImageDraw.Draw(im)
+
+    draw_grid(g, (left, top, right, bottom), dims, center,
+              tile_width, color='#eeeeee', bold_color='#bbbbbb')
 
     for pos, (color, border_color) in mapp.get_tiles():
         coord = tran_position(pos, dims, tile_width, center)
