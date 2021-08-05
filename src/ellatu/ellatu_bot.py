@@ -144,6 +144,7 @@ async def send_response(request: Request, channel: TextChannel,
     await channel.send(embed=embed, file=image_file)
     request.ellatu.run_request(request.on_resolved(), request)
 
+
 async def send_error(channel: TextChannel, title: str,
                      message: Optional[str]) -> None:
     embed = discord.Embed(title=f"Oops: {title}")
@@ -194,13 +195,22 @@ class EllatuCommandCog(commands.Cog):
         self.ellatu = ellatu
         self.event_mode = None
 
-    @commands.command(aliases=['hi'])
+    @commands.command(
+        aliases=['hi'],
+        help="Sign up for the bot (needs to be done only once, or after a " +
+        "name change).",
+        brief="sign up"
+    )
     @commands.check(check_trigger('on_message'))
     async def hello(self, ctx) -> None:
         self.ellatu.user_connected(dc_userkey(ctx.author), ctx.author.name)
         await ctx.send(f'Hello {ctx.author.name}')
 
-    @commands.command(aliases=['lvls'])
+    @commands.command(
+        aliases=['lvls'],
+        help="Lists levels for current or selected world.",
+        brief="lists levels"
+    )
     @commands.check(check_trigger('on_message'))
     async def levels(self, ctx, worldcode: Optional[str] = None) -> None:
         request = self.ellatu.run_new_request(
@@ -209,7 +219,10 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Levels")
 
-    @commands.command()
+    @commands.command(
+        help="Lists all worlds.",
+        brief="lists worlds"
+    )
     @commands.check(check_trigger('on_message'))
     async def worlds(self, ctx) -> None:
         request = self.ellatu.run_new_request(
@@ -218,7 +231,13 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Worlds")
 
-    @commands.command(aliases=['mov', 'mv'])
+    @commands.command(
+        aliases=['mov', 'mv'],
+        help="Move to a level written as '<worldcode>-<levelcode>' or only " +
+        "'<levelcode>' in the current world. Example: " +
+        "'!move world-level' or '!move level'.",
+        brief="move to level"
+    )
     @commands.check(check_trigger('on_message'))
     async def move(self, ctx, levelcode: str) -> None:
         request = self.ellatu.run_new_request(
@@ -227,7 +246,10 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Move", inline=False)
 
-    @commands.command()
+    @commands.command(
+        help="Displays information about the current level.",
+        brief="info about level"
+    )
     @commands.check(check_trigger('on_message'))
     async def sign(self, ctx) -> None:
         request = self.ellatu.run_new_request(
@@ -236,7 +258,13 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Sign", inline=False)
 
-    @commands.command()
+    @commands.command(
+        help="Create workbench with codeblocks, after empty !submit, blocks " +
+        "in these codeblocks are submitted. This command wors with " +
+        "message edit, meaning you can edit code here and only use " +
+        "!submit and !run. (workbenches may not work after time).",
+        brief="create workbench"
+    )
     async def workbench(self, ctx, *, text: str) -> None:
         codeblocks = extract_code_blocks(text)
         request = self.ellatu.run_new_request(
@@ -248,7 +276,13 @@ class EllatuCommandCog(commands.Cog):
         else:
             await send_response(request, ctx.channel, title="Workbench")
 
-    @commands.command(aliases=['s'])
+    @commands.command(
+        aliases=['s'],
+        help="Submit codeblocks (blocks created using triple `), these " +
+        "codeblocks are only saved, they still need to be run. If there " +
+        "are no blocks in the message, blocks from !workbench are used.",
+        brief="submit codeblocks"
+    )
     @commands.check(check_trigger('on_message'))
     async def submit(self, ctx, *, text: Optional[str] = None) -> None:
         codeblocks = extract_code_blocks(text) if text is not None else None
@@ -258,7 +292,13 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Submit")
 
-    @commands.command(aliases=['r'])
+    @commands.command(
+        aliases=['r'],
+        help="Run submitted codeblocks against tests from current level, " +
+        "tag other users to submit their codeblocks. (This feature may " +
+        "or may not be allowed, depending on the level.",
+        brief="run submitted blocks"
+    )
     @commands.check(check_trigger('on_message'))
     async def run(self, ctx, users: commands.Greedy[discord.Member]) -> None:
         userkeys = [dc_userkey(u) for u in reversed(users)] + \
@@ -269,7 +309,11 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Run")
 
-    @commands.command()
+    @commands.command(
+        help="Submit and run combined, the fact that run failed doesn't mean" +
+        " that submit failed also (no rollback).",
+        brief="submit and run"
+    )
     @commands.check(check_trigger('on_message'))
     async def subrun(self, ctx, users: commands.Greedy[discord.Member], *,
                      text: Optional[str] = None) -> None:
@@ -285,7 +329,10 @@ class EllatuCommandCog(commands.Cog):
         )
         await send_response(request, ctx.channel, title="Submit and Run")
 
-    @commands.command()
+    @commands.command(
+        help="Draw map of the current or selected world.",
+        brief="draw map"
+    )
     @commands.check(check_trigger('on_message'))
     async def map(self, ctx, worldcode=None) -> None:
         request = self.ellatu.run_new_request(
