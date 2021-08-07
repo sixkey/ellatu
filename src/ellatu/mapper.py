@@ -526,6 +526,8 @@ class MapperWalker(NodeWalker):
         self.inbuilt = inbuilt if inbuilt is not None else {}
         self.ship = ship
         self.mapp = mapp
+        self.max_out = 50
+        self.out: List[str] = []
 
     def walk_object(self, node: MapperASTNode) -> MapperASTNode:
         return node
@@ -744,8 +746,9 @@ def argument_check(name: str, number: Optional[Tuple[Optional[int],
 
 
 @argument_check('print', number=(1, None))
-def map_print(_: MapperWalker, args: List[Any]) -> None:
-    print(*args)
+def map_print(mapper: MapperWalker, args: List[Any]) -> None:
+    if len(mapper.out) < mapper.max_out:
+        mapper.out.append(' '.join(str(a) for a in args))
 
 
 @argument_check('mov', number=(1, 1))
@@ -795,7 +798,8 @@ def compile_code(code: str, parser: Optional[MapperParser] = None) -> Model:
     try:
         return parser.parse(processed)
     except Exception as e:
-        raise MapperCompilationError(str(e))
+        raise MapperCompilationError(
+            str(e).replace("'{'", 'indent').replace("'}'", 'dedent'))
 
 
 def compile_codeblocks(codeblocks: List[str],
@@ -810,7 +814,7 @@ def contains_main(model: Model) -> bool:
     return False
 
 
-def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
+def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
     mapper_map = Map(start=(0, 0))
     ship = Ship(mapper_map, mapper_map.start)
 
@@ -831,7 +835,7 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship]:
     except ZeroDivisionError as e:
         raise MapperRuntimeError(str(e))
 
-    return result, mapper_map, ship
+    return result, mapper_map, ship, walker.out
 
 
 def generate_level(folder: str, src: str, name: str) -> None:
@@ -848,7 +852,8 @@ def generate_level(folder: str, src: str, name: str) -> None:
             f.write(code)
 
     models = [compile_code(code)]
-    _, mapp, ship = run_models(models)
+    _, mapp, ship, out = run_models(models)
+    print(out)
 
     tiles = export_map(mapp, sep=';')
     with open(f"{name}.txt", "w") as f:

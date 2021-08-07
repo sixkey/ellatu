@@ -1,6 +1,6 @@
 from .ellatu_db import Document, Model, MongoId, UserKey
-from typing import Dict, List, Optional
-from .ellatu import (MessageSegment, Request, add_msg, data_action,
+from typing import Dict, List, Optional, Text
+from .ellatu import (MessageSegment, Request, TextMessage, add_msg, data_action,
                      limit_codeblocks, limit_columns, limit_lines, limit_users,
                      remove_files, terminate_request, trace, pipeline_sequence,
                      RequestAction, EllatuPipeline, MessageType,
@@ -79,9 +79,12 @@ def run_models(request: Request,
 
     try:
         model_list = _create_model_list(request, models, blocks_order)
-        _, mapp, ship = mapper.run_models(model_list)
+        _, mapp, ship, out = mapper.run_models(model_list)
     except mapper.MapperError as e:
         return terminate_request(request, "Mapper error: " + str(e))
+
+    if out:
+        request.add_message(TextMessage(f"_Output:_\n" + '\n'.join(out)))
 
     for test in request.level['tests']:
         print(test)

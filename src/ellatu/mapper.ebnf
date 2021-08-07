@@ -29,7 +29,7 @@ amn_function::AmnFunction
 
 codeblock::Codeblock
     =
-    '{' newline  lines:{stmt_line}+ '}' newline 
+    '{' ~ newline lines:{stmt_line}+ '}' newline 
     ; 
 
 stmt_line
