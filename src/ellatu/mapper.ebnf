@@ -113,11 +113,6 @@ expression
     | logic 
     ;
 
-neg::Neg 
-    = 
-    op:'!' ~ val:logic 
-    ; 
-
 logic 
     =
     | log_op
@@ -140,10 +135,15 @@ eq_op::Operation
     left:equality op:('==' | '!=') right:compare 
     ;   
 
+neg::Neg 
+    = 
+    op:'!' ~ val:term 
+    ; 
+
 compare 
     =
     | comp_op
-    | tneg 
+    | neg 
     | term
     ; 
 
@@ -152,16 +152,17 @@ comp_op::Operation
     left:term op:('<=' | '<' | '>=' | '>') right:term
     ; 
 
-tneg::Neg
-    = 
-    op:'-' ~ val:term
-    ; 
-
 term 
     = 
     | term_op
+    | tneg 
     | factor
     ;
+
+tneg::Neg
+    = 
+    op:'-' ~ val:factor
+    ; 
 
 term_op::Operation  
     = 
