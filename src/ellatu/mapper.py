@@ -467,14 +467,15 @@ class ScopeStack:
                 return dic[symbol]
         return None
 
-    def put(self, symbol: str, value: Any) -> None:
+    def put(self, symbol: str, value: Any, min_layer: int = 0) -> None:
         assert self.stack
-        index = 0
 
-        while index < len(self.stack) - 1 and symbol not in self.stack[index]:
-            index += 1
+        for index in range(len(self.stack) - 1, min_layer - 1, -1):
+            if symbol in self.stack[index]:
+                self.stack[index][symbol] = value
+                return
 
-        self.stack[index][symbol] = value
+        self.stack[-1][symbol] = value
 
     def put_on_last(self, symbol: str, value: Any) -> None:
         assert self.stack
@@ -687,7 +688,7 @@ class MapperWalker(NodeWalker):
 
     def walk__assigment(self, node: MapperASTNode) -> MapperASTNode:
         value = self.walk(node.value)
-        self.scope.put(node.name, value)
+        self.scope.put(node.name, value, min_layer=1)
         return value
 
     def walk__operation(self, node: MapperASTNode) -> MapperASTNode:
