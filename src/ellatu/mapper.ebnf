@@ -1,5 +1,7 @@
 @@grammar::Mapper 
 @@whitespace :: /[\t ]+/
+@@comments :: /\(\*.*?\*\)/
+@@eol_comments :: /#.*?$/
   
 document
     = 

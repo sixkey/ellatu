@@ -1,6 +1,6 @@
 from collections import defaultdict
 from typing import (Any, Callable, DefaultDict, Generator, List, Optional,
-                    Tuple, Dict, TypeVar)
+                    Tuple, Dict, TypeVar, Union)
 from PIL import Image, ImageDraw
 import numpy as np
 from math import pi
@@ -512,18 +512,28 @@ ARIT_OPS: Dict[str, Callable[[int, int], int]] = {
 
 MapperASTNode = Any
 
+MapperInbuiltFunction = Callable[['MapperWalker', List[Any]], Any]
+
+class MapperInbuiltFunctionWrapper():
+    def __init__(self, function: MapperInbuiltFunction):
+        self.function = function
 
 class MapperWalker(NodeWalker):
 
     def __init__(self, glob_scope: ScopeStack,
                  inbuilt: Optional[
-                     Dict[str, Callable[['MapperWalker', List[Any]], Any]]],
+                     Dict[str, Union[MapperInbuiltFunction, int]]],
                  ship: Ship,
                  mapp: Map) \
             -> None:
         self.ctx = glob_scope
         self.scope = glob_scope
-        self.inbuilt = inbuilt if inbuilt is not None else {}
+        if inbuilt:
+            for key, value in inbuilt.items():
+                if isinstance(value, int):
+                    self.scope.put(key, value)
+                else:
+                    self.scope.put(key, MapperInbuiltFunctionWrapper(value))
         self.ship = ship
         self.mapp = mapp
         self.max_out = 50
@@ -622,10 +632,11 @@ class MapperWalker(NodeWalker):
 
         walked_args = [self.walk(v) for v in node.args]
 
-        if node.name in self.inbuilt:
-            return self.inbuilt[node.name](self, walked_args)
-
         function = self.scope.lookup(node.name)
+
+        if isinstance(function, MapperInbuiltFunctionWrapper):
+            return function.function(self, walked_args)
+
         if function is None:
             raise MapperRuntimeError(
                 f"function '{node.name}' is not defined")
@@ -726,13 +737,12 @@ def opt_range_str(rng: Optional[Tuple[Optional[int], Optional[int]]]) \
     return f'from {bottom} to {top}', True
 
 
-MapperBuiltInFunction = Callable[[MapperWalker, List[Any]], Any]
 
 
 def argument_check(name: str, number: Optional[Tuple[Optional[int],
                                                      Optional[int]]] = None) \
-        -> Callable[[MapperBuiltInFunction], MapperBuiltInFunction]:
-    def dec(func: MapperBuiltInFunction) -> MapperBuiltInFunction:
+        -> Callable[[MapperInbuiltFunction], MapperInbuiltFunction]:
+    def dec(func: MapperInbuiltFunction) -> MapperInbuiltFunction:
         def wrapper(ctx: MapperWalker, args: List[Any]) -> Any:
             if not in_opt_range(len(args), number):
                 rng_string, rng_pl = opt_range_str(number)
@@ -785,7 +795,15 @@ INBUILT = {
     'rot': rot,
     'put': put,
     'pen': pen,
-    'col': col
+    'col': col,
+    'BLACK': 0,
+    'RED': 1,
+    'GREEN': 2,
+    'BLUE': 3,
+    'RIGHT': 1,
+    'LEFT': -1,
+    'TRUE': 1,
+    'FALSE': 0
 }
 
 Model = Any
