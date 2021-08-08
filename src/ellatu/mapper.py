@@ -1,4 +1,5 @@
 from collections import defaultdict
+from .document_editor import DocumentEditor
 from typing import (Any, Callable, DefaultDict, Generator, List, Optional,
                     Tuple, Dict, TypeVar, Union)
 from PIL import Image, ImageDraw
@@ -6,7 +7,6 @@ import numpy as np
 from math import pi
 import tatsu
 from tatsu.walkers import NodeWalker
-import json
 import sys
 import os
 
@@ -515,9 +515,11 @@ MapperASTNode = Any
 
 MapperInbuiltFunction = Callable[['MapperWalker', List[Any]], Any]
 
+
 class MapperInbuiltFunctionWrapper():
     def __init__(self, function: MapperInbuiltFunction):
         self.function = function
+
 
 class MapperWalker(NodeWalker):
 
@@ -738,8 +740,6 @@ def opt_range_str(rng: Optional[Tuple[Optional[int], Optional[int]]]) \
     return f'from {bottom} to {top}', True
 
 
-
-
 def argument_check(name: str, number: Optional[Tuple[Optional[int],
                                                      Optional[int]]] = None) \
         -> Callable[[MapperInbuiltFunction], MapperInbuiltFunction]:
@@ -857,7 +857,8 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
     return result, mapper_map, ship, walker.out
 
 
-def generate_level(folder: str, src: str, name: str) -> None:
+def generate_level(folder: str, src: str, name: str,
+                   prnt_out: bool = False) -> None:
 
     src = os.path.join(folder, src)
     org_name = name
@@ -872,7 +873,8 @@ def generate_level(folder: str, src: str, name: str) -> None:
 
     models = [compile_code(code)]
     _, mapp, ship, out = run_models(models)
-    print(out)
+    if prnt_out:
+        print(out)
 
     tiles = export_map(mapp, sep=';')
     with open(f"{name}.txt", "w") as f:
@@ -904,17 +906,17 @@ def save_json(path_name: str, org_name: str, test: str) -> None:
         with open(md_file, 'w') as f:
             f.write('!\n')
 
-    json_str = json.dumps({
+    json_base = f"{path_name}_base.json"
+    DocumentEditor().inject({
         'code': org_name,
         'title': org_name,
         'desc': desc,
         'pipeline': 'mapper',
         'tests': [test],
         'prereqs': prereqs
-    }, indent=4)
-
-    with open(filepath, "w") as f:
-        f.write(json_str)
+    }).inject_json_file(
+        json_base, optional=True
+    ).save(filepath)
 
 
 if __name__ == "__main__":
