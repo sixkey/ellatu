@@ -381,7 +381,7 @@ class User(Model):
         )
 
 
-codeValidator = StringValidator(min_size=1, max_size=6)
+codeValidator = StringValidator(min_size=1, max_size=10)
 titleValidator = StringValidator(min_size=1, max_size=64)
 
 
