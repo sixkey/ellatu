@@ -1,7 +1,8 @@
 from collections import deque
+from enum import Enum
 import logging
 import re
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 import discord
 from discord.channel import TextChannel
 from discord.errors import InvalidArgument
@@ -39,6 +40,187 @@ def is_command(message: str) -> bool:
     return starts_in(message.strip(), '!')
 
 ###############################################################################
+# Message splitting and building
+###############################################################################
+
+
+ParsingType = str
+Splitter = Callable[[str], List[Tuple[ParsingType, str]]]
+
+class ParsingNode:
+    def __init__(self, p_type: ParsingType, value: Union[str,
+                                                         List['ParsingNode']]):
+        self.p_type = p_type
+        self.value = value
+
+    def split(self, rules: Dict[ParsingType, Splitter]) -> None:
+        if isinstance(self.value, str):
+            if self.p_type not in rules:
+                return
+            self.value = [ParsingNode(t, v) \
+                          for t, v in rules[self.p_type](self.value)]
+        for child in self.value:
+            child.split(rules)
+
+    def collect(self, res: List[str]) -> List[str]:
+        if isinstance(self.value, str):
+            res.append(self.value)
+        else:
+            for child in self.value:
+                child.collect(res)
+        return res
+
+class ParsingTree:
+    def __init__(self, root: Optional[ParsingNode]):
+        self.root: Optional[ParsingNode] = root
+
+    def split(self, rules: Dict[ParsingType, Splitter]) -> None:
+        if self.root is None:
+            return
+        self.root.split(rules)
+
+
+    def collect(self) -> List[str]:
+        if self.root is None:
+            return []
+        return self.root.collect([])
+
+
+Particle = Tuple[ParsingType, str]
+
+def find_codeblocks(value: str) -> List[Particle]:
+    words = value.split('```')
+    return [('codeblock' if index % 2 == 1 else 'rawtext', word) \
+            for index, word in enumerate(words)]
+
+def find_codebits(value: str) -> List[Particle]:
+    words = value.split('`')
+    return [('codebit' if index % 2 == 1 else 'text', word) \
+            for index, word in enumerate(words)]
+
+def find_lines(value: str) -> List[Particle]:
+    return [('atom', w) for w in value.splitlines()]
+
+PARSING_RULES = {
+    'paragraph': find_codeblocks,
+    'rawtext': find_codebits,
+    'text': find_lines
+}
+
+def get_atomic_message_parts(message: str) -> List[str]:
+    tree = ParsingTree(ParsingNode("paragraph", message))
+    tree.split(PARSING_RULES)
+    return tree.collect()
+
+class DisMSegment:
+
+    def __init__(self, max_segment_size: int, title: Optional[str] = None,
+                 text_blocks: Optional[List[str]] = None):
+        self.title = title
+        self.text_blocks = text_blocks if text_blocks is not None else []
+        self._size = sum([len(t) for t in self.text_blocks])
+        self.max_segment_size = max_segment_size
+
+    def add(self, text_block: str) -> bool:
+        print("ADD", text_block)
+        if self.char_size() + len(text_block) > self.max_segment_size:
+            return False
+        self.text_blocks.append(text_block)
+        self._size += len(text_block)
+        return True
+
+    def char_size(self) -> int:
+        return (len(self.title) if self.title else 0) + self._size
+
+    def value(self) -> str:
+        return '\n\n'.join(self.text_blocks)
+
+    def __bool__(self) -> bool:
+        return self.title is not None or bool(self.text_blocks)
+
+    def __str__(self) -> str:
+        return str(self.title) + ':\n' + self.value()
+
+class DisMPage:
+
+    def __init__(self, max_page_size: int):
+        self.segments: List[DisMSegment] = []
+        self._size = 0
+        self.max_page_size = max_page_size
+        self.images = []
+
+    def add_segment(self, segment: DisMSegment) -> bool:
+        if self.char_size() + segment.char_size() > self.max_page_size:
+            return False
+        self.segments.append(segment)
+        self._size += segment.char_size()
+        return True
+
+    def char_size(self) -> int:
+        return self._size
+
+    def add_image(self, image: Tuple[str, str]):
+        self.images.append(image)
+
+    def __bool__(self) -> bool:
+        return bool(self.segments) or bool(self.images)
+
+    def __str__(self) -> str:
+        return "\n\n".join([str(s) for s in self.segments])
+
+
+class DisMBuilder:
+
+    def __init__(self, max_segment_size: int = 2000,
+                 max_page_size: int = 6000):
+        self.pages: List[DisMPage] = []
+
+        self.cur_page: DisMPage = DisMPage(max_page_size)
+        self.cur_segment: DisMSegment = DisMSegment(max_segment_size)
+
+        self.max_segment_size = max_segment_size
+        self.max_page_size = max_page_size
+
+    def flush_page(self) -> 'DisMBuilder':
+        if not self.cur_page:
+            return self
+        self.pages.append(self.cur_page)
+        self.cur_page = DisMPage(self.max_page_size)
+        return self
+
+    def flush_segment(self) -> 'DisMBuilder':
+        if not self.cur_segment:
+            return self
+        if not self.cur_page.add_segment(self.cur_segment):
+            self.flush_page()
+            if not self.cur_page.add_segment(self.cur_segment):
+                raise ValueError("Segment doesn't fit into the page")
+        self.cur_segment = DisMSegment(self.max_segment_size)
+        return self
+
+    def set_title(self, title: str) -> 'DisMBuilder':
+        self.cur_segment.title = title
+        return self
+
+    def add_text_block(self, text: str) -> 'DisMBuilder':
+        if self.cur_segment.add(text):
+            return self
+        atoms = get_atomic_message_parts(text)
+        print('ATOMS', atoms)
+        for atom in atoms:
+            if self.cur_segment.add(atom):
+                continue
+            self.flush_segment()
+            if not self.cur_segment.add(atom):
+                raise ValueError("An text atom doesn't fit in empty segment")
+        return self
+
+    def add_image(self, image: Tuple[str, str]) -> 'DisMBuilder':
+        self.cur_page.add_image(image)
+        return self
+
+
+###############################################################################
 # Event
 ###############################################################################
 
@@ -49,38 +231,6 @@ def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
 
-
-def split_text(text: str, message_size: int) -> List[str]:
-    chunks = []
-
-    # This is a very naive solution with many problems, but will have to do now
-
-    lines = text.split('\n')
-    buf = ''
-    for line in lines:
-        if len(line) > message_size:
-            raise RuntimeError(f"A line can't be more than {message_size} " +
-                               "characters long")
-        if len(buf) + len(line) + 1 > message_size:
-            chunks.append(buf)
-            buf = ''
-        if buf != '':
-            buf += '\n'
-        buf += line
-    if buf != '':
-        chunks.append(buf)
-    return chunks
-
-
-def add_block(blocks: List[str], block: str) -> None:
-    if len(block) <= 1000:
-        blocks.append(block)
-        return
-
-    for chunk in split_text(block, 1000):
-        blocks.append(chunk)
-
-
 def add_field(embed: discord.Embed, title: Optional[str] = None,
               value: Optional[str] = None, inline: bool = False) -> None:
     embed.add_field(
@@ -90,58 +240,49 @@ def add_field(embed: discord.Embed, title: Optional[str] = None,
     )
 
 
-def flush_blocks(embed: discord.Embed, title: Optional[str],
-                 blocks: List[str], inline: bool = True) -> None:
-    if not title and not blocks:
-        return
-
-    queue = deque(blocks)
-    while queue:
-        value = ''
-        while queue and len(value) + len(queue[0]) < 1000:
-            value += '\n\n' + queue.popleft()
-        if title or value:
-            add_field(embed, title=title, value=value, inline=inline)
-        title = None
-    blocks.clear()
-
+def build_pages(request: Request) -> DisMBuilder:
+    builder = DisMBuilder()
+    for message in request.messages:
+        print(str(message))
+        if isinstance(message, TextMessage):
+            builder.add_text_block(message.message)
+        elif isinstance(message, ParagraphMessage):
+            builder.add_text_block(message.message)
+            for image in message.images:
+                builder.add_image(image)
+        elif isinstance(message, MessageSegment):
+            builder.flush_segment().set_title(message.title)
+        elif isinstance(message, ImageMessage):
+            builder.add_image((message.alt_text, message.location))
+        else:
+            builder.add_text_block(str(message))
+    builder.flush_segment()
+    builder.flush_page()
+    return builder
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
                         inline: bool = True,
                         desc: Optional[str] = None) -> None:
     color = discord.Color.green() if request.alive else discord.Color.red()
-    embed = create_embed(title, color, desc)
+    builder = build_pages(request)
 
-    image_file = None
+    pages_num = len(builder.pages)
+    for index, page in enumerate(builder.pages):
+        page_embed = create_embed(title, color,
+                                  desc=None if index > 0 else desc)
+        for segment in page.segments:
+            add_field(page_embed, title=segment.title,
+                      value=segment.value(), inline=inline)
+        image_file = None
+        if page.images:
+            _, thumb_file = page.images[0]
+            image_file = discord.File(thumb_file, "thumb.png")
+            page_embed.set_image(url="attachment://thumb.png")
+        if pages_num > 1:
+            page_embed.set_footer(text="{index}/{pages_num}")
+        await channel.send(embed=page_embed, file=image_file)
 
-    text_blocks: List[str] = []
-    images: List[Tuple[str, str]] = []
-    name = None
-
-    for message in request.messages:
-        if isinstance(message, TextMessage):
-            add_block(text_blocks, message.message)
-        elif isinstance(message, ParagraphMessage):
-            add_block(text_blocks, message.message)
-            if message.images:
-                images += message.images
-        elif isinstance(message, MessageSegment):
-            flush_blocks(embed, name, text_blocks, inline=inline)
-            name = message.title
-        elif isinstance(message, ImageMessage):
-            images.append((message.alt_text, message.location))
-        else:
-            add_block(text_blocks, str(message))
-
-    flush_blocks(embed, name, text_blocks, inline=inline)
-
-    image_file = None
-    if images:
-        _, thumb_file = images[0]
-        image_file = discord.File(thumb_file, "thumb.png")
-        embed.set_image(url="attachment://thumb.png")
-    await channel.send(embed=embed, file=image_file)
     request.ellatu.run_request(request.on_resolved(), request)
 
 
@@ -360,4 +501,10 @@ class EllatuCommandCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        await ctx.send(f"{str(error)}")
+        if isinstance(error,
+                      (commands.CommandNotFound,
+                       commands.MissingPermissions)):
+            await ctx.send(f"{str(error)}")
+        else:
+            await ctx.send(f"Oops, internal error occured, contact admin")
+            ellatu_logger.log(logging.ERROR, str(error))
