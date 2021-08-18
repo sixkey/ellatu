@@ -9,6 +9,8 @@ import tatsu
 from tatsu.walkers import NodeWalker
 import sys
 import os
+import json
+from pprint import pprint
 
 from importlib import resources
 
@@ -858,7 +860,7 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
 
 
 def generate_level(folder: str, src: str, name: str,
-                   prnt_out: bool = False) -> None:
+                   prnt_out: bool = False, prnt_ast: bool = False) -> None:
 
     src = os.path.join(folder, src)
     org_name = name
@@ -872,6 +874,10 @@ def generate_level(folder: str, src: str, name: str,
             f.write(code)
 
     models = [compile_code(code)]
+
+    if prnt_ast:
+        pprint(json.loads(str(models[0]).replace("'", '"')))
+
     _, mapp, ship, out = run_models(models)
     if prnt_out:
         print(out)

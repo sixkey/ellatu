@@ -109,8 +109,7 @@ assigment::Assigment
 
 expression
     =
-    | neg 
-    | logic 
+    logic 
     ;
 
 logic 
@@ -135,15 +134,9 @@ eq_op::Operation
     left:equality op:('==' | '!=') right:compare 
     ;   
 
-neg::Neg 
-    = 
-    op:'!' ~ val:term 
-    ; 
-
 compare 
     =
     | comp_op
-    | neg 
     | term
     ; 
 
@@ -155,14 +148,8 @@ comp_op::Operation
 term 
     = 
     | term_op
-    | tneg 
     | factor
     ;
-
-tneg::Neg
-    = 
-    op:'-' ~ val:factor
-    ; 
 
 term_op::Operation  
     = 
@@ -172,7 +159,7 @@ term_op::Operation
 factor
     = 
     | fact_op
-    | call
+    | neg 
     | element
     ; 
 
@@ -181,15 +168,21 @@ fact_op::Operation
     left:factor op:('*' | '/' | '%') ~ right:element
     ; 
 
-call::Call
+neg::Neg
     = 
-    name:name '(' args:','.{expression} ')'
+    op:('-' | '!') ~ val:element
     ; 
 
 element 
     = 
+    | @:call
     | '(' ~ @:expression ')'
     | @:atom
+    ; 
+
+call::Call
+    = 
+    name:name '(' args:','.{expression} ')'
     ; 
 
 atom 
