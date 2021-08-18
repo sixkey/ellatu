@@ -561,9 +561,8 @@ def print_levels() -> RequestAction:
             if level['prereqs']:
                 p_str = ','.join(['_' + s + '_' for s in level['prereqs']])
                 res += f" needs {p_str}"
-                res += '\n'
-                trace(request, res)
-        return request
+            res += '\n'
+        return trace(request, res)
     return print_levels_action
 
 
