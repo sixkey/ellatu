@@ -813,7 +813,7 @@ class Ellatu:
             return terminate_request(request, "Unexpected internal error")
 
     def run_new_request(self, request_action: RequestAction,
-                    requestor: UserKey) -> Request:
+                        requestor: UserKey) -> Request:
         logger.info(f"{requestor} made an request")
         request = Request(self, requestor)
         return self.run_request(request_action, request)

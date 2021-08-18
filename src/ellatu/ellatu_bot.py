@@ -47,6 +47,7 @@ def is_command(message: str) -> bool:
 ParsingType = str
 Splitter = Callable[[str], List[Tuple[ParsingType, str]]]
 
+
 class ParsingNode:
     def __init__(self, p_type: ParsingType, value: Union[str,
                                                          List['ParsingNode']]):
@@ -57,7 +58,7 @@ class ParsingNode:
         if isinstance(self.value, str):
             if self.p_type not in rules:
                 return
-            self.value = [ParsingNode(t, v) \
+            self.value = [ParsingNode(t, v)
                           for t, v in rules[self.p_type](self.value)]
         for child in self.value:
             child.split(rules)
@@ -70,6 +71,7 @@ class ParsingNode:
                 child.collect(res)
         return res
 
+
 class ParsingTree:
     def __init__(self, root: Optional[ParsingNode]):
         self.root: Optional[ParsingNode] = root
@@ -79,7 +81,6 @@ class ParsingTree:
             return
         self.root.split(rules)
 
-
     def collect(self) -> List[str]:
         if self.root is None:
             return []
@@ -88,18 +89,25 @@ class ParsingTree:
 
 Particle = Tuple[ParsingType, str]
 
+
 def find_codeblocks(value: str) -> List[Particle]:
     words = value.split('```')
-    return [('codeblock' if index % 2 == 1 else 'rawtext', word) \
+    return [('codeblock', '```' + word + '```')
+            if index % 2 == 1 else ('text', word)
             for index, word in enumerate(words)]
+
 
 def find_codebits(value: str) -> List[Particle]:
     words = value.split('`')
-    return [('codebit' if index % 2 == 1 else 'text', word) \
+    return [('codebit' if index % 2 == 1 else 'text', word)
             for index, word in enumerate(words)]
 
+
 def find_lines(value: str) -> List[Particle]:
-    return [('atom', w) for w in value.splitlines()]
+    lines = value.splitlines()
+    return [('atom', w + ('\n' if i < len(lines) - 1 else '')) \
+            for i, w in enumerate(lines)]
+
 
 PARSING_RULES = {
     'paragraph': find_codeblocks,
@@ -107,10 +115,12 @@ PARSING_RULES = {
     'text': find_lines
 }
 
+
 def get_atomic_message_parts(message: str) -> List[str]:
     tree = ParsingTree(ParsingNode("paragraph", message))
     tree.split(PARSING_RULES)
     return tree.collect()
+
 
 class DisMSegment:
 
@@ -120,26 +130,28 @@ class DisMSegment:
         self.text_blocks = text_blocks if text_blocks is not None else []
         self._size = sum([len(t) for t in self.text_blocks])
         self.max_segment_size = max_segment_size
+        self.acc = ''
 
-    def add(self, text_block: str) -> bool:
-        print("ADD", text_block)
+    def add(self, text_block: str, terminator: str = '') -> bool:
         if self.char_size() + len(text_block) > self.max_segment_size:
             return False
         self.text_blocks.append(text_block)
         self._size += len(text_block)
+        self.acc += text_block + terminator
         return True
 
     def char_size(self) -> int:
         return (len(self.title) if self.title else 0) + self._size
 
     def value(self) -> str:
-        return '\n\n'.join(self.text_blocks)
+        return self.acc
 
     def __bool__(self) -> bool:
         return self.title is not None or bool(self.text_blocks)
 
     def __str__(self) -> str:
         return str(self.title) + ':\n' + self.value()
+
 
 class DisMPage:
 
@@ -171,7 +183,7 @@ class DisMPage:
 
 class DisMBuilder:
 
-    def __init__(self, max_segment_size: int = 2000,
+    def __init__(self, max_segment_size: int = 1000,
                  max_page_size: int = 6000):
         self.pages: List[DisMPage] = []
 
@@ -203,15 +215,16 @@ class DisMBuilder:
         return self
 
     def add_text_block(self, text: str) -> 'DisMBuilder':
-        if self.cur_segment.add(text):
+        if self.cur_segment.add(text.rstrip(), '\n\n'):
             return self
         atoms = get_atomic_message_parts(text)
-        print('ATOMS', atoms)
-        for atom in atoms:
-            if self.cur_segment.add(atom):
+        for index, atom in enumerate(atoms):
+            term, value = ('', atom) \
+                if index < len(atoms) - 1 else ('\n\n', atom.rstrip())
+            if self.cur_segment.add(value, term):
                 continue
             self.flush_segment()
-            if not self.cur_segment.add(atom):
+            if not self.cur_segment.add(atom, term):
                 raise ValueError("An text atom doesn't fit in empty segment")
         return self
 
@@ -231,6 +244,7 @@ def create_embed(title: str, color: discord.Color, desc: Optional[str] = None)\
         return discord.Embed(title=title, color=color)
     return discord.Embed(title=title, color=color, description=desc)
 
+
 def add_field(embed: discord.Embed, title: Optional[str] = None,
               value: Optional[str] = None, inline: bool = False) -> None:
     embed.add_field(
@@ -243,7 +257,6 @@ def add_field(embed: discord.Embed, title: Optional[str] = None,
 def build_pages(request: Request) -> DisMBuilder:
     builder = DisMBuilder()
     for message in request.messages:
-        print(str(message))
         if isinstance(message, TextMessage):
             builder.add_text_block(message.message)
         elif isinstance(message, ParagraphMessage):
@@ -259,6 +272,7 @@ def build_pages(request: Request) -> DisMBuilder:
     builder.flush_segment()
     builder.flush_page()
     return builder
+
 
 async def send_response(request: Request, channel: TextChannel,
                         title: str = "Response",
@@ -280,7 +294,7 @@ async def send_response(request: Request, channel: TextChannel,
             image_file = discord.File(thumb_file, "thumb.png")
             page_embed.set_image(url="attachment://thumb.png")
         if pages_num > 1:
-            page_embed.set_footer(text="{index}/{pages_num}")
+            page_embed.set_footer(text=f"{index + 1}/{pages_num}")
         await channel.send(embed=page_embed, file=image_file)
 
     request.ellatu.run_request(request.on_resolved(), request)
