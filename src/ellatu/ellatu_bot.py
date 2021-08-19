@@ -1,5 +1,3 @@
-from collections import deque
-from enum import Enum
 import logging
 import re
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -105,7 +103,7 @@ def find_codebits(value: str) -> List[Particle]:
 
 def find_lines(value: str) -> List[Particle]:
     lines = value.splitlines()
-    return [('atom', w + ('\n' if i < len(lines) - 1 else '')) \
+    return [('atom', w + ('\n' if i < len(lines) - 1 else ''))
             for i, w in enumerate(lines)]
 
 
@@ -330,16 +328,25 @@ class EllatuListeningCog(commands.Cog):
 # Commands
 ###############################################################################
 
+
+class TriggerCheckFailed(commands.CheckFailure):
+    pass
+
+
 def check_trigger(trigger_event):
     if isinstance(trigger_event, str):
         def pred_str(ctx):
-            return hasattr(ctx, 'trigger_event') \
-                and ctx.trigger_event == trigger_event
+            if not (hasattr(ctx, 'trigger_event')
+                    and ctx.trigger_event == trigger_event):
+                raise TriggerCheckFailed("Invalid trigger")
+            return True
         return pred_str
     elif isinstance(trigger_event, set):
         def pred_set(ctx):
-            return hasattr(ctx, 'trigger_event') \
-                and ctx.trigger_event in trigger_event
+            if not (hasattr(ctx, 'trigger_event')
+                    and ctx.trigger_event in trigger_event):
+                raise TriggerCheckFailed("Invalid trigger")
+            return True
         return pred_set
     raise InvalidArgument("Trigger event can only be str or set")
 
@@ -519,6 +526,12 @@ class EllatuCommandCog(commands.Cog):
                       (commands.CommandNotFound,
                        commands.MissingPermissions)):
             await ctx.send(f"{str(error)}")
+        if isinstance(error, TriggerCheckFailed):
+            pass
         else:
-            await ctx.send(f"Oops, internal error occured, contact admin")
-            ellatu_logger.log(logging.ERROR, str(error))
+            await ctx.send("Oops, internal error occured, contact admin")
+            if isinstance(error,
+                          commands.CheckFailure):
+                ellatu_logger.log(logging.INFO, error)
+            else:
+                ellatu_logger.exception(error)
