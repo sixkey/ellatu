@@ -644,13 +644,11 @@ class MapperWalker(NodeWalker):
 
         if function is None:
             raise MapperRuntimeError(
-                f"function '{node.name}' is not defined")
+                f"Function '{node.name}' is not defined")
 
         if len(function.params) != (len(node.args)):
-            raise MapperRuntimeError(
-                "Invalid number of positzonal arguments, function " +
-                f"'{node.name}' takes {len(function.params)} arguments, " +
-                f"but {node.args} were given.")
+            number = len(function.params)
+            raise pos_args_invnum(node.name, (number, number), len(node.args))
 
         scope = self.scope
         newscope = self.scope.copy()
@@ -742,17 +740,23 @@ def opt_range_str(rng: Optional[Tuple[Optional[int], Optional[int]]]) \
     return f'from {bottom} to {top}', True
 
 
+def pos_args_invnum(name: str, desired: Optional[Tuple[Optional[int],
+                                                       Optional[int]]],
+                    got: int):
+    rng_string, rng_pl = opt_range_str(desired)
+    return MapperRuntimeError(
+        f"Function '{name}' takes {rng_string} positional " +
+        f"argument{'s' if rng_pl else ''} " +
+        f"but {got} were given.")
+
+
 def argument_check(name: str, number: Optional[Tuple[Optional[int],
                                                      Optional[int]]] = None) \
         -> Callable[[MapperInbuiltFunction], MapperInbuiltFunction]:
     def dec(func: MapperInbuiltFunction) -> MapperInbuiltFunction:
         def wrapper(ctx: MapperWalker, args: List[Any]) -> Any:
             if not in_opt_range(len(args), number):
-                rng_string, rng_pl = opt_range_str(number)
-                raise MapperRuntimeError(
-                    f"Function '{name}' takes {rng_string} positional " +
-                    f"argument{'s' if rng_pl else ''} " +
-                    f"but {len(args)} were given.")
+                raise pos_args_invnum(name, number, len(args))
             return func(ctx, args)
         return wrapper
     return dec
