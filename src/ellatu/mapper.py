@@ -839,9 +839,14 @@ def contains_main(model: Model) -> bool:
     return False
 
 
-def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
-    mapper_map = Map(start=(0, 0))
-    ship = Ship(mapper_map, mapper_map.start)
+def run_models(models: List[Model], mapper_map: Optional[Map] = None,
+               ship: Optional[Ship] = None,
+               function_name: str = 'main') \
+        -> Tuple[Any, Map, Ship, List[str]]:
+    if mapper_map is None:
+        mapper_map = Map()
+    if ship is None:
+        ship = Ship(mapper_map, mapper_map.start)
 
     scopestack = ScopeStack()
     scopestack.add_scope()
@@ -850,11 +855,12 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
         for dec in model['decls']:
             walker.walk(dec)
     scopestack.add_scope()
-    main_function = scopestack.lookup('main')
-    if main_function is None:
-        raise MapperRuntimeError("No main found")
+
+    called_function = scopestack.lookup(function_name)
+    if called_function is None:
+        raise MapperRuntimeError(f"{function_name} not found")
     try:
-        result = walker.walk(main_function.body)
+        result = walker.walk(called_function.body)
     except RecursionError:
         raise MapperRuntimeError('maximum recursion depth exceeded')
     except ZeroDivisionError as e:
@@ -862,6 +868,7 @@ def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
 
     return result, mapper_map, ship, walker.out
 
+MapperTest = Tuple[str, str]
 
 def generate_level(folder: str, src: str, name: str,
                    prnt_out: bool = False, prnt_ast: bool = False) -> None:
@@ -870,33 +877,46 @@ def generate_level(folder: str, src: str, name: str,
     org_name = name
     name = os.path.join(folder, name)
 
-    with open(f"{src}.mpp") as f:
-        code = f.read()
+    tests = ['blank']
 
+    with open(f"{src}.mpp") as f:
+        header = f.readline().strip()
+        if header[0] == '$':
+            tests = header[1:].split()
+        else:
+            f.seek(0)
+        code = f.read()
     if name != src:
         with open(f"{name}.mpp", 'w') as f:
             f.write(code)
 
     models = [compile_code(code)]
-
     if prnt_ast:
         pprint(json.loads(str(models[0]).replace("'", '"')))
 
-    _, mapp, ship, out = run_models(models)
-    if prnt_out:
-        print(out)
+    test_exports = []
 
-    tiles = export_map(mapp, sep=';')
-    with open(f"{name}.txt", "w") as f:
-        f.write(tiles)
+    for index, test in enumerate(tests):
+        mapp = Map()
+        ship = Ship(mapp)
+        start_ship = Ship(mapp)
+        out = []
+        if test != 'blank':
+            _, mapp, ship, out = run_models(models, function_name=test)
+        if prnt_out:
+            print(out)
+        tiles_test = export_map(mapp, sep=';')
+        render_map(f"{name}-{index}-start.png", mapp, start_ship)
+        _, mapp, ship, out = run_models(models, mapper_map = mapp)
+        if prnt_out:
+            print(out)
+        tiles_res = export_map(mapp, sep=';')
+        render_map(f"{name}-{index}-res.png", mapp, ship)
+        test_exports.append((tiles_test, tiles_res))
+    save_json(name, org_name, test_exports)
 
-    start_ship = Ship(mapp)
-    render_map(f"{name}.png", mapp, start_ship)
-    render_map(f"{name}-res.png", mapp, ship)
-    save_json(name, org_name, tiles)
 
-
-def save_json(path_name: str, org_name: str, test: str) -> None:
+def save_json(path_name: str, org_name: str, tests: List[MapperTest]) -> None:
 
     filepath = f"{path_name}.json"
     if os.path.isfile(filepath):
@@ -922,7 +942,7 @@ def save_json(path_name: str, org_name: str, test: str) -> None:
         'title': org_name,
         'desc': desc,
         'pipeline': 'mapper',
-        'tests': [test],
+        'tests': tests,
         'prereqs': prereqs
     }).inject_json_file(
         json_base, optional=True
