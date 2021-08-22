@@ -278,21 +278,25 @@ async def send_response(request: Request, channel: TextChannel,
                         desc: Optional[str] = None) -> None:
     color = discord.Color.green() if request.alive else discord.Color.red()
     builder = build_pages(request)
-
     pages_num = len(builder.pages)
+
     for index, page in enumerate(builder.pages):
         page_embed = create_embed(title, color,
                                   desc=None if index > 0 else desc)
         for segment in page.segments:
             add_field(page_embed, title=segment.title,
                       value=segment.value(), inline=inline)
+
         image_file = None
+
         if page.images:
             _, thumb_file = page.images[0]
             image_file = discord.File(thumb_file, "thumb.png")
             page_embed.set_image(url="attachment://thumb.png")
+
         if pages_num > 1:
             page_embed.set_footer(text=f"{index + 1}/{pages_num}")
+
         await channel.send(embed=page_embed, file=image_file)
 
     request.ellatu.run_request(request.on_resolved(), request)
@@ -524,9 +528,11 @@ class EllatuCommandCog(commands.Cog):
     async def on_command_error(self, ctx, error):
         if isinstance(error,
                       (commands.CommandNotFound,
+                       commands.CommandOnCooldown,
+                       commands.UserInputError,
                        commands.MissingPermissions)):
             await ctx.send(f"{str(error)}")
-        if isinstance(error, TriggerCheckFailed):
+        elif isinstance(error, TriggerCheckFailed):
             pass
         else:
             await ctx.send("Oops, internal error occured, contact admin")
