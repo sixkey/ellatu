@@ -1,8 +1,10 @@
 from collections import defaultdict
+from ellatu.image_editing import Drawing
 from .document_editor import DocumentEditor
 from typing import (Any, Callable, DefaultDict, Generator, List, Optional,
                     Tuple, Dict, TypeVar, Union)
-from PIL import Image, ImageDraw
+from PIL import Image
+import aggdraw
 import numpy as np
 from math import pi
 import tatsu
@@ -95,7 +97,9 @@ class Map:
         min_x, min_y = self.start
         max_x, max_y = self.start
 
-        for (x, y), _ in self.tiles.items():
+        for (x, y), tile_color in self.tiles.items():
+            if tile_color == (None, None):
+                continue
             min_x, min_y = min(min_x, x), min(min_y, y)
             max_x, max_y = max(max_x, x), max(max_y, y)
 
@@ -115,10 +119,11 @@ class Map:
             new_border = border_color
         self.tiles[tile] = (new_color, new_border)
 
-    def get_tiles(self) -> Generator[Tuple[Tuple[int, int], TileColor],
-                                     None, None]:
+    def get_tiles(self, start: bool = False) \
+            -> Generator[Tuple[Tuple[int, int], TileColor], None, None]:
         yield from self.tiles.items()
-        yield self.start, (None, 'green')
+        if start:
+            yield self.start, (None, 'green')
 
     def reset(self) -> None:
         self.tiles.clear()
@@ -139,7 +144,7 @@ class Map:
         return result
 
 
-def mapp_diff(desired: Map, received: Map) -> Optional[Map]:
+def mapp_diff_old(desired: Map, received: Map) -> Optional[Map]:
     result = received.copy()
 
     different = False
@@ -163,6 +168,25 @@ def mapp_diff(desired: Map, received: Map) -> Optional[Map]:
         miss_color = 'blue'
 
     return result if different else None
+
+def mapp_diff(desired: Map, received: Map) -> Optional[Map]:
+    result = Map()
+
+    for tile, (color, _) in desired.tiles.items():
+        if color is None:
+            continue
+        (rec_color, _) = received.get(tile)
+        if rec_color != color:
+            result.put(tile, color=color, border_color=None)
+
+    for tile, (color, _) in received.tiles.items():
+        if color is None:
+            continue
+        (rec_color, _) = desired.get(tile)
+        if rec_color is None:
+            result.put(tile, color='white', border_color=None)
+
+    return result if result.tiles else None
 
 
 def mov_for_dir(direction: int) -> Tuple[int, int]:
@@ -309,20 +333,41 @@ def transform(polygon: np.ndarray, pos: Tuple[int, int],
 SHIP = np.array(((0, -1, 1), (1, 1, 1), (-1, 1, 1))).T
 
 
+class DrawingData:
+    def __init__(self, box: Tuple[int, int, int, int],
+                 center: Tuple[float, float], dims: Tuple[int, int],
+                 tile_size: int) -> None:
+        self.box = box
+        self.center = center
+        self.tile_size = tile_size
+        self.dims = dims
+
+
 def render_map(path: str, mapp: Map, ship: Optional[Ship] = None) -> None:
     im = draw_map(mapp, ship)
     im.save(path)
 
 
-def show_map(mapp: Map, ship: Optional[Ship] = None) -> None:
-    im = draw_map(mapp, ship)
-    im.show()
+def render_multilevel(path: str, dirs: List[Tuple[str, Map]],
+                      ship: Optional[Ship] = None) -> None:
+    drawing = create_drawing([m for _, m in dirs])
+    draw_grid(drawing, color='#eeeeee', bold_color='#bbbbbb')
+    for index, (directive, mapp) in enumerate(dirs):
+        draw_tiles(drawing, mapp, method=directive, start=index == 0)
+    if ship is not None:
+        draw_ship(drawing, ship)
+    drawing.g.flush()
+    drawing.image.save(path)
 
 
-def draw_grid(g: ImageDraw.ImageDraw, box: Tuple[int, int, int, int],
-              dims: Tuple[int, int], center: Tuple[float, float],
-              tile_size: int, color: str = 'lightgray', width: int = 2,
+def draw_grid(drawing: Drawing[DrawingData],
+              color: str = 'lightgray', width: int = 2,
               bold_color: str = 'gray') -> None:
+
+    dims = drawing.image.width, drawing.image.height
+    tile_size = drawing.data.tile_size
+    center = drawing.data.center
+    box = drawing.data.box
 
     coord = tran_position((0, 0), dims, tile_size, center)
 
@@ -343,21 +388,80 @@ def draw_grid(g: ImageDraw.ImageDraw, box: Tuple[int, int, int, int],
 
     frequencies = [(1, color), (5, bold_color)]
     for freq, line_col in frequencies:
+        pen = aggdraw.Pen(line_col, 2)
         for col in range(0, width // tile_size + 1):
             if (col - off_col) % freq == 0:
                 x = (col - off_col) * tile_size + ln_off_x
-                g.line((x, 0, x, height), fill=line_col, width=2)
+                drawing.g.line((x, 0, x, height), pen)
         for row in range(0, height // tile_size + 1):
             if (row - off_row) % freq == 0:
                 y = (row - off_row) * tile_size + ln_off_y
-                g.line((0, y, width, y), fill=line_col, width=2)
+                drawing.g.line((0, y, width, y), pen)
 
 
-def draw_map(mapp: Map, ship: Optional[Ship] = None) -> Image.Image:
+def draw_tiles(drawing: Drawing[DrawingData], mapp: Map,
+               method: str = 'rect', start: bool = True) -> None:
+
+    dims = drawing.image.width, drawing.image.height
+    tile_width = drawing.data.tile_size
+    center = drawing.data.center
+
+    drawing_function = drawing.g.rectangle
+    grid_size = tile_width
+    border_size = tile_width // 10
+    if method == 'point':
+        tile_width = tile_width * 3 // 5
+        drawing_function = drawing.g.ellipse
+    for pos, (color, border_color) in mapp.get_tiles(start):
+        if color is None and border_color is None:
+            continue
+        stroke_color = border_color if border_color is not None else color
+        pen = aggdraw.Pen(stroke_color, border_size, 255)
+        brush = aggdraw.Brush(color, 255 if color is not None else 0)
+        coord = tran_position(
+            pos, dims, grid_size, center)
+        bound_box = (coord[0] - tile_width // 2, coord[1] - tile_width // 2,
+                     coord[0] + tile_width // 2, coord[1] + tile_width // 2)
+        stroke_box = (bound_box[0] + border_size // 2,
+                      bound_box[1] + border_size // 2,
+                      bound_box[2] - border_size // 2,
+                      bound_box[3] - border_size // 2)
+        drawing_function(bound_box, aggdraw.Pen('', 0, 0), brush)
+        drawing_function(stroke_box, pen, aggdraw.Brush('', 0))
+
+
+def draw_ship(drawing: Drawing[DrawingData], ship: Ship) -> None:
+    dims = drawing.image.width, drawing.image.height
+    tile_width = drawing.data.tile_size
+    center = drawing.data.center
+
+    rot = ship.direction * pi / 2
+    ship_pos = tran_position(ship.position, dims, tile_width, center)
+    polygon = transform(SHIP, (int(ship_pos[0]), int(ship_pos[1])), rot,
+                        tile_width / 3).T.tolist()
+    res_poly = []
+    for p in polygon:
+        res_poly += p[:2]
+    pen = aggdraw.Pen("", 0)
+    brush = aggdraw.Brush("gray")
+    drawing.g.polygon(res_poly, pen, brush)
+
+
+def master_bounding_box(boxes: List[Tuple[int, int, int, int]]) \
+        -> Tuple[int, int, int, int]:
+    return (min(b[0] for b in boxes),
+            min(b[1] for b in boxes),
+            max(b[2] for b in boxes),
+            max(b[3] for b in boxes))
+
+
+def create_drawing(mapps: List[Map]) -> Drawing:
     width = 800
     height = 500
 
-    left, top, right, bottom = mapp.get_bounding_coords()
+    left, top, right, bottom = master_bounding_box(
+        [m.get_bounding_coords() for m in mapps])
+
     cx, cy = (left + right) / 2, (top + bottom) / 2
 
     tile_width = 50
@@ -371,34 +475,25 @@ def draw_map(mapp: Map, ship: Optional[Ship] = None) -> Image.Image:
     if top != cy:
         tile_width = int(min(tile_width, height / 2 / (cy - top + 1)))
 
-    tile_width = int(tile_width)
+    tile_width = max(2, int(tile_width)) // 2 * 2
 
     dims = (width, height)
     center = (cx, cy)
 
     im = Image.new(mode="RGB", size=dims, color="white")
-    g = ImageDraw.Draw(im)
+    return Drawing(im, DrawingData(
+        (left, top, right, bottom), center, dims, tile_width
+    ))
 
-    draw_grid(g, (left, top, right, bottom), dims, center,
-              tile_width, color='#eeeeee', bold_color='#bbbbbb')
 
-    for pos, (color, border_color) in mapp.get_tiles():
-        coord = tran_position(pos, dims, tile_width, center)
-        coord = coord[0] - tile_width // 2, coord[1] - tile_width // 2
-        g.rectangle(
-            [coord, (coord[0] + tile_width, coord[1] + tile_width)],
-            fill=color, width=tile_width//10,
-            outline=border_color)
-
+def draw_map(mapp: Map, ship: Optional[Ship] = None) -> Image.Image:
+    drawing = create_drawing([mapp])
+    draw_grid(drawing, color='#eeeeee', bold_color='#bbbbbb')
+    draw_tiles(drawing, mapp)
     if ship is not None:
-        rot = ship.direction * pi / 2
-        ship_pos = tran_position(ship.position, dims, tile_width, center)
-        polygon = transform(SHIP, (int(ship_pos[0]), int(ship_pos[1])), rot,
-                            tile_width / 3).T.tolist()
-        res_poly = tuple([tuple(p[:2]) for p in polygon])
-        g.polygon(tuple(res_poly), "gray")
-
-    return im
+        draw_ship(drawing, ship)
+    drawing.g.flush()
+    return drawing.image
 
 
 ###############################################################################
@@ -529,7 +624,7 @@ class MapperWalker(NodeWalker):
                  inbuilt: Optional[
                      Dict[str, Union[MapperInbuiltFunction, int]]],
                  ship: Ship,
-                 mapp: Map) \
+                 mapp: Map, max_out: Optional[int] = None) \
             -> None:
         self.ctx = glob_scope
         self.scope = glob_scope
@@ -541,7 +636,7 @@ class MapperWalker(NodeWalker):
                     self.scope.put(key, MapperInbuiltFunctionWrapper(value))
         self.ship = ship
         self.mapp = mapp
-        self.max_out = 50
+        self.max_out = max_out
         self.out: List[str] = []
 
     def walk_object(self, node: MapperASTNode) -> MapperASTNode:
@@ -764,7 +859,7 @@ def argument_check(name: str, number: Optional[Tuple[Optional[int],
 
 @argument_check('print', number=(1, None))
 def map_print(mapper: MapperWalker, args: List[Any]) -> None:
-    if len(mapper.out) < mapper.max_out:
+    if mapper.max_out is None or len(mapper.out) < mapper.max_out:
         mapper.out.append(' '.join(str(a) for a in args))
 
 
@@ -779,11 +874,18 @@ def rot(mapper: MapperWalker, args: List[Any]) -> None:
 
 
 COLS = ['black', 'red', 'green', 'blue']
+REV_COLS = {c: i for i, c in enumerate(COLS)}
+
+
+def validate_color(color: int) -> int:
+    if color < 0 or color >= len(COLS):
+        raise MapperRuntimeError(f'color has to be from 0 to {len(COLS)-1}')
+    return color
 
 
 @argument_check('put', number=(1, 1))
 def put(mapper: MapperWalker, args: List[Any]) -> None:
-    mapper.ship.put(color=COLS[args[0]])
+    mapper.ship.put(color=COLS[validate_color(args[0])])
 
 
 @argument_check('pen', number=(1, 1))
@@ -793,7 +895,15 @@ def pen(mapper: MapperWalker, args: List[Any]) -> None:
 
 @argument_check('col', number=(1, 1))
 def col(mapper: MapperWalker, args: List[Any]) -> None:
-    mapper.ship.color = COLS[args[0]]
+    mapper.ship.color = COLS[validate_color(args[0])]
+
+
+@argument_check('scn', number=(0, 0))
+def scn(mapper: MapperWalker, _: List[Any]) -> int:
+    col, border = mapper.mapp.get(mapper.ship.position)
+    if col is None:
+        return -1
+    return REV_COLS[col] if col in REV_COLS else -1
 
 
 INBUILT = {
@@ -803,6 +913,7 @@ INBUILT = {
     'put': put,
     'pen': pen,
     'col': col,
+    'scn': scn,
     'BLACK': 0,
     'RED': 1,
     'GREEN': 2,
@@ -839,28 +950,37 @@ def contains_main(model: Model) -> bool:
     return False
 
 
-def run_models(models: List[Model]) -> Tuple[Any, Map, Ship, List[str]]:
-    mapper_map = Map(start=(0, 0))
-    ship = Ship(mapper_map, mapper_map.start)
+def run_models(models: List[Model], mapper_map: Optional[Map] = None,
+               ship: Optional[Ship] = None,
+               function_name: str = 'main') \
+        -> Tuple[Any, Map, Ship, List[str]]:
+    if mapper_map is None:
+        mapper_map = Map()
+    if ship is None:
+        ship = Ship(mapper_map, mapper_map.start)
 
     scopestack = ScopeStack()
     scopestack.add_scope()
-    walker = MapperWalker(scopestack, INBUILT, ship, mapper_map)
+    walker = MapperWalker(scopestack, INBUILT, ship, mapper_map, max_out=None)
     for model in models:
         for dec in model['decls']:
             walker.walk(dec)
     scopestack.add_scope()
-    main_function = scopestack.lookup('main')
-    if main_function is None:
-        raise MapperRuntimeError("No main found")
+
+    called_function = scopestack.lookup(function_name)
+    if called_function is None:
+        raise MapperRuntimeError(f"{function_name} not found")
     try:
-        result = walker.walk(main_function.body)
+        result = walker.walk(called_function.body)
     except RecursionError:
         raise MapperRuntimeError('maximum recursion depth exceeded')
     except ZeroDivisionError as e:
         raise MapperRuntimeError(str(e))
 
     return result, mapper_map, ship, walker.out
+
+
+MapperTest = Tuple[str, str]
 
 
 def generate_level(folder: str, src: str, name: str,
@@ -870,33 +990,49 @@ def generate_level(folder: str, src: str, name: str,
     org_name = name
     name = os.path.join(folder, name)
 
-    with open(f"{src}.mpp") as f:
-        code = f.read()
+    tests = ['blank']
 
+    with open(f"{src}.mpp") as f:
+        header = f.readline().strip()
+        if len(header) >= 5 and header[:5] == '#incl':
+            tests = header[5:].strip().split()
+        f.seek(0)
+        code = f.read()
     if name != src:
         with open(f"{name}.mpp", 'w') as f:
             f.write(code)
 
     models = [compile_code(code)]
-
     if prnt_ast:
         pprint(json.loads(str(models[0]).replace("'", '"')))
 
-    _, mapp, ship, out = run_models(models)
-    if prnt_out:
-        print(out)
+    test_exports = []
 
-    tiles = export_map(mapp, sep=';')
-    with open(f"{name}.txt", "w") as f:
-        f.write(tiles)
+    for index, test in enumerate(tests):
+        mapp = Map()
+        ship = Ship(mapp)
+        start_ship = Ship(mapp)
+        out = []
+        if test != 'blank':
+            _, mapp, ship, out = run_models(models, function_name=test)
+        start_mapp = mapp.copy()
+        if prnt_out:
+            print(out)
+        tiles_test = export_map(mapp, sep=';')
+        _, mapp, ship, out = run_models(models, mapper_map=mapp)
+        if prnt_out:
+            print(out)
+        render_multilevel(
+            f"{name}-{index}-start.png",
+            [('rect', start_mapp), ('point', mapp)],
+            start_ship)
+        tiles_res = export_map(mapp, sep=';')
+        render_map(f"{name}-{index}-res.png", mapp, ship)
+        test_exports.append((tiles_test, tiles_res))
+    save_json(name, org_name, test_exports)
 
-    start_ship = Ship(mapp)
-    render_map(f"{name}.png", mapp, start_ship)
-    render_map(f"{name}-res.png", mapp, ship)
-    save_json(name, org_name, tiles)
 
-
-def save_json(path_name: str, org_name: str, test: str) -> None:
+def save_json(path_name: str, org_name: str, tests: List[MapperTest]) -> None:
 
     filepath = f"{path_name}.json"
     if os.path.isfile(filepath):
@@ -904,7 +1040,7 @@ def save_json(path_name: str, org_name: str, test: str) -> None:
             return
 
     prereqs = []
-    desc = f'![{org_name}][{path_name}.png]'
+    desc = f'![{org_name}][{path_name}-0-start.png]'
 
     md_file = f"{path_name}.md"
     if os.path.isfile(md_file):
@@ -922,7 +1058,7 @@ def save_json(path_name: str, org_name: str, test: str) -> None:
         'title': org_name,
         'desc': desc,
         'pipeline': 'mapper',
-        'tests': [test],
+        'tests': tests,
         'prereqs': prereqs
     }).inject_json_file(
         json_base, optional=True

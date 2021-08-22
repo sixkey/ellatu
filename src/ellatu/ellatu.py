@@ -387,7 +387,7 @@ def assign_to_workbench() -> RequestAction:
     return assign_to_workbench_action
 
 
-def print_codeblocks() -> RequestAction:
+def print_codeblocks(short: bool = False) -> RequestAction:
     def print_codeblocks_action(request: Request) -> Request:
         res = ""
 
@@ -401,8 +401,12 @@ def print_codeblocks() -> RequestAction:
 
             user = request.users[usermap[userid]]
             res += user["username"]
-            for codeblock in codeblocks:
-                res += "```\n" + codeblock + "```"
+            if short:
+                number = len(codeblocks)
+                res += f": with {number} block{'s' if number != 1 else ''}"
+            else:
+                for codeblock in codeblocks:
+                    res += "```\n" + codeblock + "```"
 
         trace(request, res)
 
@@ -863,7 +867,7 @@ class Ellatu:
             permission_check(),
             assign_from_workplace(userkeys),
             add_msg(MessageSegment("Running following blocks:")),
-            print_codeblocks(),
+            print_codeblocks(short=True),
             set_data('blocks_order', userkeys),
             self.on_run_workflow,
             save_solution()
